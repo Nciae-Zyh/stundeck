@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS dashboard
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS dashboard
 WORKDIR /src/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
@@ -6,7 +6,7 @@ RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm run build
 
-FROM golang:1.25.1-bookworm AS backend
+FROM --platform=$BUILDPLATFORM golang:1.25.1-bookworm AS backend
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -14,11 +14,13 @@ COPY . .
 COPY --from=dashboard /src/web/dist/ /src/web/dist/
 ARG VERSION=dev
 ARG COMMIT=none
+ARG TARGETOS
+ARG TARGETARCH
 RUN CGO_ENABLED=0 go test ./... && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/Nciae-Zyh/stundeck/internal/version.Version=${VERSION} -X github.com/Nciae-Zyh/stundeck/internal/version.Commit=${COMMIT}" -o /out/stundeck ./cmd/stundeck && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/stundeck-notify ./cmd/stundeck-notify
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X github.com/Nciae-Zyh/stundeck/internal/version.Version=${VERSION} -X github.com/Nciae-Zyh/stundeck/internal/version.Commit=${COMMIT}" -o /out/stundeck ./cmd/stundeck && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/stundeck-notify ./cmd/stundeck-notify
 
-FROM debian:bookworm-slim AS natmap
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS natmap
 ARG TARGETARCH
 ARG NATMAP_VERSION=20260214
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
