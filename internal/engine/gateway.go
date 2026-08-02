@@ -60,14 +60,7 @@ func (m *Manager) ApplyGatewayMapping(ctx context.Context, service store.Service
 	if err != nil {
 		return err
 	}
-	state := GatewayMapping{
-		Mode:         service.GatewayMode,
-		Gateway:      service.GatewayAddress,
-		InternalIP:   internalIP,
-		InternalPort: mapping.PrivatePort,
-		ExternalPort: mapping.PublicPort,
-		Protocol:     strings.ToUpper(mapping.Protocol),
-	}
+	state := gatewayMappingState(service, mapping, internalIP)
 
 	switch service.GatewayMode {
 	case "upnp":
@@ -80,6 +73,9 @@ func (m *Manager) ApplyGatewayMapping(ctx context.Context, service store.Service
 		state.ServiceType = gatewayService.ServiceType
 		if err := addUPnPMapping(ctx, state, "StunDeck "+shortServiceID(service.ID)); err != nil {
 			return fmt.Errorf("add UPnP mapping: %w", err)
+		}
+		if err := verifyUPnPMapping(ctx, state); err != nil {
+			return fmt.Errorf("verify UPnP mapping: %w", err)
 		}
 	case "natpmp":
 		gateway := net.ParseIP(service.GatewayAddress)
@@ -119,6 +115,20 @@ func (m *Manager) ApplyGatewayMapping(ctx context.Context, service store.Service
 		go m.renewNATPMP(processContext, service.ID, state, generation)
 	}
 	return nil
+}
+
+func gatewayMappingState(service store.Service, mapping Mapping, internalIP string) GatewayMapping {
+	return GatewayMapping{
+		Mode:         service.GatewayMode,
+		Gateway:      service.GatewayAddress,
+		InternalIP:   internalIP,
+		InternalPort: mapping.PrivatePort,
+		// UPnP/NAT-PMP controls the first-hop gateway. In a multi-NAT setup
+		// the final public port belongs to an upstream NAT, while this gateway
+		// must preserve the NATMap bind port (the same behavior Lucky uses).
+		ExternalPort: mapping.PrivatePort,
+		Protocol:     strings.ToUpper(mapping.Protocol),
+	}
 }
 
 func (m *Manager) GatewayMappingActive(serviceID string) bool {
@@ -288,38 +298,87 @@ func addUPnPMapping(ctx context.Context, mapping GatewayMapping, description str
 		soapValue("NewInternalClient", mapping.InternalIP) +
 		"<NewEnabled>1</NewEnabled>" + soapValue("NewPortMappingDescription", description) +
 		"<NewLeaseDuration>0</NewLeaseDuration>"
-	return upnpSOAP(ctx, mapping, "AddPortMapping", body)
+	_, err := upnpSOAP(ctx, mapping, "AddPortMapping", body)
+	return err
 }
 
 func deleteUPnPMapping(ctx context.Context, mapping GatewayMapping) error {
 	body := "<NewRemoteHost></NewRemoteHost>" +
 		soapValue("NewExternalPort", strconv.Itoa(mapping.ExternalPort)) +
 		soapValue("NewProtocol", mapping.Protocol)
-	return upnpSOAP(ctx, mapping, "DeletePortMapping", body)
+	_, err := upnpSOAP(ctx, mapping, "DeletePortMapping", body)
+	return err
 }
 
-func upnpSOAP(ctx context.Context, mapping GatewayMapping, action, inner string) error {
+func verifyUPnPMapping(ctx context.Context, mapping GatewayMapping) error {
+	body := "<NewRemoteHost></NewRemoteHost>" +
+		soapValue("NewExternalPort", strconv.Itoa(mapping.ExternalPort)) +
+		soapValue("NewProtocol", mapping.Protocol)
+	payload, err := upnpSOAP(ctx, mapping, "GetSpecificPortMappingEntry", body)
+	if err != nil {
+		return err
+	}
+	type mappingResponse struct {
+		InternalPort   int    `xml:"Body>GetSpecificPortMappingEntryResponse>NewInternalPort"`
+		InternalClient string `xml:"Body>GetSpecificPortMappingEntryResponse>NewInternalClient"`
+		Enabled        string `xml:"Body>GetSpecificPortMappingEntryResponse>NewEnabled"`
+	}
+	var response mappingResponse
+	if err := xml.Unmarshal(payload, &response); err != nil {
+		return err
+	}
+	if response.InternalPort != mapping.InternalPort || net.ParseIP(response.InternalClient) == nil || response.InternalClient != mapping.InternalIP {
+		return fmt.Errorf("gateway returned %s:%d instead of %s:%d", response.InternalClient, response.InternalPort, mapping.InternalIP, mapping.InternalPort)
+	}
+	if response.Enabled != "" && response.Enabled != "1" {
+		return errors.New("gateway mapping is disabled")
+	}
+	return nil
+}
+
+func getUPnPExternalIP(ctx context.Context, mapping GatewayMapping) (net.IP, error) {
+	payload, err := upnpSOAP(ctx, mapping, "GetExternalIPAddress", "")
+	if err != nil {
+		return nil, err
+	}
+	type externalIPResponse struct {
+		Address string `xml:"Body>GetExternalIPAddressResponse>NewExternalIPAddress"`
+	}
+	var response externalIPResponse
+	if err := xml.Unmarshal(payload, &response); err != nil {
+		return nil, err
+	}
+	address := net.ParseIP(response.Address)
+	if address == nil {
+		return nil, errors.New("gateway returned an invalid WAN address")
+	}
+	return address, nil
+}
+
+func upnpSOAP(ctx context.Context, mapping GatewayMapping, action, inner string) ([]byte, error) {
 	envelope := `<?xml version="1.0"?>` +
 		`<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>` +
 		`<u:` + action + ` xmlns:u="` + mapping.ServiceType + `">` + inner + `</u:` + action + `>` +
 		`</s:Body></s:Envelope>`
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, mapping.ControlURL, strings.NewReader(envelope))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
 	request.Header.Set("SOAPAction", `"`+mapping.ServiceType+`#`+action+`"`)
 	response, err := directHTTPClient().Do(request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return nil
+	payload, readErr := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+	if readErr != nil {
+		return nil, readErr
 	}
-	payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	return fmt.Errorf("gateway returned HTTP %d: %s", response.StatusCode, conciseSOAPError(payload))
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return payload, nil
+	}
+	return nil, fmt.Errorf("gateway returned HTTP %d: %s", response.StatusCode, conciseSOAPError(payload))
 }
 
 func soapValue(name, value string) string {

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Nciae-Zyh/stundeck/internal/store"
 )
 
 func TestSSDPHeaderIsCaseInsensitive(t *testing.T) {
@@ -48,5 +50,31 @@ func TestAddUPnPMappingUsesDiscoveredPorts(t *testing.T) {
 		if !strings.Contains(receivedBody, expected) {
 			t.Fatalf("SOAP body does not contain %q: %s", expected, receivedBody)
 		}
+	}
+}
+
+func TestGatewayMappingUsesPrivateBindPortAtFirstHop(t *testing.T) {
+	state := gatewayMappingState(
+		store.Service{GatewayMode: "upnp", GatewayAddress: "10.1.0.1"},
+		Mapping{PrivatePort: 36037, PublicPort: 10538, Protocol: "tcp"},
+		"10.1.1.227",
+	)
+	if state.ExternalPort != 36037 || state.InternalPort != 36037 {
+		t.Fatalf("first-hop mapping = %d -> %d, want 36037 -> 36037", state.ExternalPort, state.InternalPort)
+	}
+}
+
+func TestVerifyUPnPMappingReadsGatewayEntry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/xml")
+		_, _ = io.WriteString(response, `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetSpecificPortMappingEntryResponse xmlns:u="urn:schemas-upnp-org:service:WANIPConnection:1"><NewInternalPort>36037</NewInternalPort><NewInternalClient>10.1.1.227</NewInternalClient><NewEnabled>1</NewEnabled></u:GetSpecificPortMappingEntryResponse></s:Body></s:Envelope>`)
+	}))
+	defer server.Close()
+	mapping := GatewayMapping{
+		Mode: "upnp", ControlURL: server.URL, ServiceType: "urn:schemas-upnp-org:service:WANIPConnection:1",
+		InternalIP: "10.1.1.227", InternalPort: 36037, ExternalPort: 36037, Protocol: "TCP",
+	}
+	if err := verifyUPnPMapping(context.Background(), mapping); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -190,9 +190,14 @@ func (m *Manager) checkGatewayDiscovery(ctx context.Context, service store.Servi
 		return "info", "未配置路由器端口映射"
 	}
 	if mode == "upnp" {
-		_, location, err := discoverUPnP(ctx, service.GatewayAddress)
+		gatewayService, location, err := discoverUPnP(ctx, service.GatewayAddress)
 		if err != nil {
 			return "fail", "UPnP IGD 发现失败：" + conciseNetworkError(err)
+		}
+		gatewayWAN, wanErr := getUPnPExternalIP(ctx, GatewayMapping{ControlURL: gatewayService.ControlURL, ServiceType: gatewayService.ServiceType})
+		publicIP := net.ParseIP(service.PublicIP)
+		if wanErr == nil && publicIP != nil && !gatewayWAN.Equal(publicIP) {
+			return "pass", "已发现 UPnP IGD 网关 " + location.Hostname() + "；检测到多层 NAT，将放行穿透监听端口"
 		}
 		return "pass", "已发现 UPnP IGD 网关 " + location.Hostname()
 	}
