@@ -5,6 +5,7 @@ import type { CloudflareConnection, EventItem, Service, SystemStatus, Webhook } 
 import { formatEndpoint, formatRelativeTime } from '../utils'
 import CloudflarePanel from './CloudflarePanel.vue'
 import ServiceForm from './ServiceForm.vue'
+import SecurityPanel from './SecurityPanel.vue'
 import StatusBadge from './StatusBadge.vue'
 import WebhookPanel from './WebhookPanel.vue'
 
@@ -136,6 +137,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
         </div>
 
         <aside class="side-column">
+          <SecurityPanel />
           <CloudflarePanel :connections="connections" @changed="load" />
           <WebhookPanel :webhooks="webhooks" @changed="load" />
           <section class="panel boundary-card">

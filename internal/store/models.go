@@ -3,10 +3,17 @@ package store
 import "time"
 
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID                   string    `json:"id"`
+	Username             string    `json:"username"`
+	PasswordHash         string    `json:"-"`
+	TOTPSecretCiphertext string    `json:"-"`
+	TOTPEnabled          bool      `json:"totpEnabled"`
+	CreatedAt            time.Time `json:"createdAt"`
+}
+
+type AccessPolicy struct {
+	Mode         string   `json:"mode"`
+	AllowedHosts []string `json:"allowedHosts"`
 }
 
 type Session struct {

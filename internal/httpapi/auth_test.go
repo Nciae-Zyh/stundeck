@@ -38,6 +38,7 @@ func TestSetupCreatesLocalSessionWithoutEchoingPassword(t *testing.T) {
 	})
 	payload := []byte(`{"username":"admin","password":"a secure local password"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", bytes.NewReader(payload))
+	request.RemoteAddr = "127.0.0.1:12345"
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

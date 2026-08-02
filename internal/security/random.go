@@ -7,9 +7,17 @@ import (
 )
 
 func RandomToken(bytes int) (string, error) {
-	buffer := make([]byte, bytes)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", fmt.Errorf("generate random token: %w", err)
+	buffer, err := randomBytes(bytes)
+	if err != nil {
+		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+func randomBytes(size int) ([]byte, error) {
+	buffer := make([]byte, size)
+	if _, err := rand.Read(buffer); err != nil {
+		return nil, fmt.Errorf("generate random bytes: %w", err)
+	}
+	return buffer, nil
 }

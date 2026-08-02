@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  totp_secret_ciphertext TEXT NOT NULL DEFAULT '',
+  totp_enabled INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -134,9 +136,55 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending
 ON webhook_deliveries(delivered_at, next_attempt_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
+	}
+	if err := s.ensureUserSecurityColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureUserSecurityColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(users)")
+	if err != nil {
+		return fmt.Errorf("inspect users schema: %w", err)
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan users schema: %w", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close users schema rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate users schema: %w", err)
+	}
+	if !columns["totp_secret_ciphertext"] {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN totp_secret_ciphertext TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("add totp secret column: %w", err)
+		}
+	}
+	if !columns["totp_enabled"] {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return fmt.Errorf("add totp enabled column: %w", err)
+		}
 	}
 	return nil
 }

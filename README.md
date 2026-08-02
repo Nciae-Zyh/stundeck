@@ -14,6 +14,8 @@ StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责�
 - 映射变化事件、持久化历史与自动同步。
 - HMAC-SHA256 签名 Webhook、重试与 SSRF 防护。
 - Argon2id 本地管理员密码、SameSite 会话与 CSRF 防护。
+- 首次启动自定义管理员、TOTP 验证器 2FA。
+- 仅本机／局域网／公网访问模式与 Host 域名/IP 白名单。
 - AES-256-GCM 加密保存 Cloudflare Token 和 Webhook Secret。
 - Vue 3 响应式 Dashboard。
 - Docker Compose、Docker 镜像和原生二进制构建。
@@ -30,7 +32,7 @@ Linux 主机或软路由是推荐运行环境。STUN 映射需要看到真实网
 docker compose up -d --build
 ```
 
-打开 `http://服务器局域网IP:8080`，完成本地管理员初始化，再添加 Cloudflare API Token。
+打开 `http://服务器局域网IP:8080`，自行创建管理员用户名和密码，并选择控制面访问模式。首次初始化只接受本机或局域网请求；完成后可以在“控制面安全”中开启 TOTP 2FA、设置允许访问域名/IP，再添加 Cloudflare API Token。
 
 正式暴露管理页面前，请通过反向代理或 Cloudflare Tunnel 提供 HTTPS，并设置：
 
@@ -83,6 +85,8 @@ StunDeck 为每个 Redirect Rule 写入稳定的 `ref`，只通过 Cloudflare �
 - HTTPS 直连必须配置目标域名，并让局域网服务持有覆盖该域名的有效证书。
 - 敏感管理服务优先使用 Cloudflare Tunnel，而不是 STUN Redirect。
 - Docker Desktop 不适合作为正式 STUN 网关；推荐 Linux host network。
+- `STUNDECK_LISTEN` 决定进程监听地址，控制面访问模式负责请求级限制；要从局域网或公网进入，两层都必须允许。
+- 公网模式必须使用 HTTPS、强密码和域名/IP 白名单，并强烈建议开启 2FA。
 
 ## 文档
 

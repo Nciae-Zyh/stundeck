@@ -6,11 +6,14 @@
 Vue Dashboard
       ↓ same-origin JSON + session + CSRF
 Go HTTP API
+      ├─ network + Host access policy
       ├─ SQLite desired/actual state
       ├─ NATMap process supervisor
       ├─ Cloudflare reconciler
       └─ persistent webhook dispatcher
 ```
+
+访问策略在应用路由前执行。首次初始化只允许本机或局域网；初始化后根据保存的 `local`、`lan` 或 `public` 模式以及 Host 白名单判断请求。TOTP 密钥、Cloudflare Token 与 Webhook Secret 都经 AES-256-GCM 加密后写入 SQLite。
 
 ## NATMap 边界
 
@@ -37,7 +40,7 @@ stopped → discovering → mapped → healthy
 
 ## 数据表
 
-- `users`、`sessions`
+- `users`、`sessions`、`settings`
 - `cloudflare_connections`
 - `services`
 - `events`

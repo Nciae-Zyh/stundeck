@@ -68,8 +68,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/natmap-event", s.natmapEvent)
 
 	mux.Handle("GET /api/v1/status", s.protected(http.HandlerFunc(s.status)))
+	mux.Handle("GET /api/v1/access-policy", s.protected(http.HandlerFunc(s.getAccessPolicy)))
+	mux.Handle("PUT /api/v1/access-policy", s.protected(http.HandlerFunc(s.updateAccessPolicy)))
 	mux.Handle("GET /api/v1/auth/me", s.protected(http.HandlerFunc(s.me)))
 	mux.Handle("POST /api/v1/auth/logout", s.protected(http.HandlerFunc(s.logout)))
+	mux.Handle("GET /api/v1/security", s.protected(http.HandlerFunc(s.securityState)))
+	mux.Handle("POST /api/v1/security/totp/begin", s.protected(http.HandlerFunc(s.beginTOTP)))
+	mux.Handle("POST /api/v1/security/totp/confirm", s.protected(http.HandlerFunc(s.confirmTOTP)))
+	mux.Handle("DELETE /api/v1/security/totp", s.protected(http.HandlerFunc(s.disableTOTP)))
 	mux.Handle("GET /api/v1/cloudflare/connections", s.protected(http.HandlerFunc(s.cloudflareConnections)))
 	mux.Handle("POST /api/v1/cloudflare/validate", s.protected(http.HandlerFunc(s.validateCloudflare)))
 	mux.Handle("POST /api/v1/cloudflare/connections", s.protected(http.HandlerFunc(s.saveCloudflareConnection)))
@@ -87,7 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/webhooks/{id}", s.protected(http.HandlerFunc(s.deleteWebhook)))
 	mux.Handle("POST /api/v1/webhooks/{id}/test", s.protected(http.HandlerFunc(s.testWebhook)))
 	mux.Handle("/", web.Handler())
-	return s.securityHeaders(s.requestLog(mux))
+	return s.securityHeaders(s.accessPolicy(s.requestLog(mux)))
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

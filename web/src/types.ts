@@ -11,6 +11,16 @@ export interface SystemStatus {
   engineAvailable: boolean
 }
 
+export interface AccessPolicy {
+  mode: 'local' | 'lan' | 'public'
+  allowedHosts: string[]
+}
+
+export interface SecurityState {
+  username: string
+  totpEnabled: boolean
+}
+
 export interface CloudflareConnection {
   id: string
   name: string

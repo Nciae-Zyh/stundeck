@@ -26,6 +26,22 @@ Compose 配置具备以下默认值：
 
 如果目标平台确实要求修改 nftables，后期的防火墙适配器会使用独立 helper 和最小 `CAP_NET_ADMIN`，不会要求整个容器使用 `privileged: true`。
 
+## 控制面访问模式
+
+首次初始化只能从本机或局域网完成。向导内可以选择：
+
+- `local`：只接受回环地址请求。
+- `lan`：接受回环、RFC 1918 私网和链路本地地址，默认推荐。
+- `public`：接受公网来源；必须额外使用 HTTPS、域名/IP 白名单和 TOTP 2FA。
+
+访问模式不会替代监听地址或主机防火墙。原生运行默认只监听 `127.0.0.1:8080`；Docker Compose 为 host network 场景监听 `0.0.0.0:8080`，再由 StunDeck 策略限制请求来源。配置反向代理或 Tunnel 时，StunDeck 看到的是代理连接地址，因此必须同时配置允许访问的 Host，并在代理层限制来源。
+
+允许 Host 支持精确域名、IP 和 `*.example.com` 形式的子域通配符。回环健康检查不受 Host 白名单影响，避免容器被错误标记为不健康。
+
+## 两步验证
+
+登录后进入“控制面安全”，生成 TOTP 密钥，在 1Password、Google Authenticator 或兼容验证器中添加，再输入 6 位动态代码确认。密钥使用与 Cloudflare Token 相同的 AES-256-GCM 本地主密钥加密保存。关闭 2FA 时必须同时提供当前密码和动态代码。
+
 ## 原生运行
 
 ```bash

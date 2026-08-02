@@ -38,20 +38,49 @@ WHERE NOT EXISTS (SELECT 1 FROM users)`,
 }
 
 func (s *Store) UserByUsername(ctx context.Context, username string) (User, error) {
+	return s.user(ctx, "username = ?", username)
+}
+
+func (s *Store) User(ctx context.Context, id string) (User, error) {
+	return s.user(ctx, "id = ?", id)
+}
+
+func (s *Store) user(ctx context.Context, predicate, value string) (User, error) {
 	var user User
+	var totpEnabled int
 	var createdAt string
-	err := s.db.QueryRowContext(ctx,
-		"SELECT id, username, password_hash, created_at FROM users WHERE username = ?",
-		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &createdAt)
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, username, password_hash, totp_secret_ciphertext, totp_enabled, created_at
+FROM users WHERE `+predicate,
+		value,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.TOTPSecretCiphertext, &totpEnabled, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("get user: %w", err)
 	}
+	user.TOTPEnabled = totpEnabled != 0
 	user.CreatedAt = parseTime(createdAt)
 	return user, nil
+}
+
+func (s *Store) SetUserTOTP(ctx context.Context, userID, ciphertext string, enabled bool) error {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE users SET totp_secret_ciphertext = ?, totp_enabled = ? WHERE id = ?`,
+		ciphertext, enabled, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("update user totp: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check updated user totp: %w", err)
+	}
+	if affected != 1 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, session Session) error {

@@ -24,8 +24,11 @@ type authData struct {
 }
 
 type authRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username     string   `json:"username"`
+	Password     string   `json:"password"`
+	TOTPCode     string   `json:"totpCode"`
+	AccessMode   string   `json:"accessMode"`
+	AllowedHosts []string `json:"allowedHosts"`
 }
 
 type loginAttempt struct {
@@ -107,13 +110,18 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "weak_password", err.Error())
 		return
 	}
+	policy, err := normalizeAccessPolicy(input.AccessMode, input.AllowedHosts)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "access_policy_invalid", err.Error())
+		return
+	}
 	userID, err := security.RandomToken(18)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "random_failed", "Unable to initialize StunDeck")
 		return
 	}
 	user := store.User{ID: userID, Username: input.Username, PasswordHash: passwordHash, CreatedAt: time.Now()}
-	if err := s.store.CreateAdmin(r.Context(), user); err != nil {
+	if err := s.store.InitializeAdmin(r.Context(), user, policy); err != nil {
 		writeError(w, http.StatusConflict, "setup_conflict", "StunDeck was initialized by another request")
 		return
 	}
@@ -136,6 +144,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(250 * time.Millisecond)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect")
 		return
+	}
+	if user.TOTPEnabled {
+		if strings.TrimSpace(input.TOTPCode) == "" {
+			writeError(w, http.StatusUnauthorized, "totp_required", "Enter the 6-digit authenticator code")
+			return
+		}
+		secret, err := s.cipher.Decrypt(user.TOTPSecretCiphertext)
+		if err != nil || !security.ValidateTOTP(secret, input.TOTPCode, time.Now()) {
+			s.loginLimiter.failed(key)
+			writeError(w, http.StatusUnauthorized, "totp_invalid", "Authenticator code is invalid")
+			return
+		}
 	}
 	s.loginLimiter.clear(key)
 	s.createAuthenticatedSession(w, r, user)
