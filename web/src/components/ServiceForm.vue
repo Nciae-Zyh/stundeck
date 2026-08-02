@@ -1,35 +1,65 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api } from '../api'
-import type { CloudflareConnection } from '../types'
+import { createServiceDraft, serviceToDraft } from '../serviceForm'
+import type { CloudflareConnection, Service } from '../types'
 
-const props = defineProps<{ connections: CloudflareConnection[] }>()
-const emit = defineEmits<{ created: [] }>()
-
-const form = ref({
-  name: '', targetHost: '', targetPort: 80, protocol: 'tcp', bindPort: 0,
-  scheme: 'http', publishMode: 'direct', cloudflareConnectionId: '',
-  entryHostname: '', originHostname: '', redirectStatus: 302,
-  preservePath: true, preserveQuery: true, manageDns: true,
+const props = withDefaults(defineProps<{
+  connections: CloudflareConnection[]
+  service?: Service
+  restartAfterSave?: boolean
+}>(), {
+  service: undefined,
+  restartAfterSave: false,
 })
+const emit = defineEmits<{
+  saved: [serviceId: string]
+  cancel: []
+}>()
+
+const form = ref(createServiceDraft(props.connections))
 const busy = ref(false)
 const error = ref('')
+const editing = computed(() => Boolean(props.service))
 const redirectMode = computed(() => form.value.publishMode === 'redirect')
+const submitLabel = computed(() => {
+  if (busy.value) return editing.value ? '保存中…' : '创建中…'
+  if (editing.value && props.restartAfterSave) return '保存并重新启动'
+  return editing.value ? '保存修改' : '创建服务'
+})
+
+watch(
+  () => props.service?.id,
+  () => {
+    form.value = props.service ? serviceToDraft(props.service) : createServiceDraft(props.connections)
+    error.value = ''
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.connections[0]?.id,
+  (connectionId) => {
+    if (!editing.value && !form.value.cloudflareConnectionId && connectionId) {
+      form.value.cloudflareConnectionId = connectionId
+    }
+  },
+)
 
 async function submit() {
   busy.value = true
   error.value = ''
   try {
-    await api('/api/v1/services', { method: 'POST', body: JSON.stringify(form.value) })
-    form.value = {
-      name: '', targetHost: '', targetPort: 80, protocol: 'tcp', bindPort: 0,
-      scheme: 'http', publishMode: 'direct', cloudflareConnectionId: props.connections[0]?.id ?? '',
-      entryHostname: '', originHostname: '', redirectStatus: 302,
-      preservePath: true, preserveQuery: true, manageDns: true,
+    const path = props.service ? `/api/v1/services/${props.service.id}` : '/api/v1/services'
+    const method = props.service ? 'PUT' : 'POST'
+    const result = await api<{ service: Service }>(path, { method, body: JSON.stringify(form.value) })
+    if (props.service && props.restartAfterSave) {
+      await api(`/api/v1/services/${props.service.id}/start`, { method: 'POST' })
     }
-    emit('created')
+    if (!props.service) form.value = createServiceDraft(props.connections)
+    emit('saved', result.service.id)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '服务创建失败'
+    error.value = cause instanceof Error ? cause.message : editing.value ? '服务保存失败' : '服务创建失败'
   } finally {
     busy.value = false
   }
@@ -38,7 +68,10 @@ async function submit() {
 
 <template>
   <details class="disclosure create-service" open>
-    <summary>添加局域网服务</summary>
+    <summary>{{ editing ? `编辑服务 · ${service?.name}` : '添加局域网服务' }}</summary>
+    <p v-if="editing" class="form-hint">
+      修改会更新现有服务，不会创建重复条目。<template v-if="restartAfterSave">该服务已暂时停止，保存或取消后会自动恢复运行。</template>
+    </p>
     <form class="form-grid" @submit.prevent="submit">
       <label>服务名称<input v-model.trim="form.name" required placeholder="家庭 NAS" /></label>
       <label>局域网 IP / 主机名<input v-model.trim="form.targetHost" required placeholder="192.168.1.20" /></label>
@@ -58,7 +91,11 @@ async function submit() {
       </template>
       <div class="span-2 form-actions">
         <p v-if="error" class="error-text">{{ error }}</p>
-        <button class="button primary" type="submit" :disabled="busy">{{ busy ? '创建中…' : '创建服务' }}</button>
+        <span v-else />
+        <div class="button-group">
+          <button v-if="editing" class="button secondary" type="button" :disabled="busy" @click="emit('cancel')">取消</button>
+          <button class="button primary" type="submit" :disabled="busy">{{ submitLabel }}</button>
+        </div>
       </div>
     </form>
   </details>

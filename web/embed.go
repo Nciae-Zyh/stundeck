@@ -16,14 +16,22 @@ func Handler() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	index, err := fs.ReadFile(sub, "index.html")
+	if err != nil {
+		panic(err)
+	}
 	files := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if clean == "." || clean == "" {
-			clean = "index.html"
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(index)
+			return
 		}
 		if _, err := fs.Stat(sub, clean); err != nil {
-			r.URL.Path = "/index.html"
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(index)
+			return
 		}
 		files.ServeHTTP(w, r)
 	})

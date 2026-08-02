@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "qrcode": "^1.5.4",
-    "vue": "^3.5.40"
+    "vue": "^3.5.40",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
