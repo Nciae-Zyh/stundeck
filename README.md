@@ -8,6 +8,8 @@ StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责�
 
 - 单节点 TCP/UDP NATMap 监管。
 - 局域网目标可达性预检。
+- 一键 STUN 诊断：代理环境、TCP/UDP Binding、保活出口、目标协议、网关能力与映射进程。
+- 可选的 UPnP / NAT-PMP 网关端口映射，适配 StunDeck 运行在普通局域网主机的场景。
 - Cloudflare API Token 验证与 Zone 选择。
 - Cloudflare DNS 与 Single Redirect 单规则同步。
 - 仅支持明确记录在 Single Redirect 文档中的 `302` 和 `307`。
@@ -27,6 +29,8 @@ StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责�
 ### Docker Compose
 
 Linux 主机或软路由是推荐运行环境。STUN 映射需要看到真实网络栈，因此容器使用 host network，但默认不会启用 `privileged`。
+
+运行容器默认显式清空 HTTP、HTTPS 和 ALL_PROXY。镜像拉取阶段如需代理，只应临时配置 Docker 守护进程或拉取命令，启动 StunDeck 前必须撤销；管理页的“STUN 检测”会检查运行时代理变量。
 
 ```bash
 docker compose up -d --build
@@ -72,6 +76,8 @@ internal authenticated callback
         ↓
 SQLite desired/actual state
         ↓
+optional UPnP / NAT-PMP gateway mapping
+        ↓
 Cloudflare single-rule reconcile + signed webhooks
 ```
 
@@ -83,6 +89,9 @@ StunDeck 为每个 Redirect Rule 写入稳定的 `ref`，只通过 Cloudflare �
 - 第二跳不会经过 Cloudflare WAF、Access 或缓存，并会暴露公网 IP/端口。
 - DNS 不能保存端口，普通浏览器也不会使用 SRV 记录发现 Web 端口。
 - HTTPS 直连必须配置目标域名，并让局域网服务持有覆盖该域名的有效证书。
+- Cloudflare Redirect 不是 Tunnel；“STUN 检测”能证明本机 Binding 与映射进程正常，但公网入站仍需手机蜂窝网络或独立外部探针复核。
+- StunDeck 不在主路由上运行时，可按服务启用 UPnP 或 NAT-PMP。留空网关会自动发现默认网关；多路由环境应明确填写网关 IP。
+- 路由器端口映射默认关闭。启用后 StunDeck 只管理当前服务取得的公网端口，并在正常停止服务时撤销映射。
 - 敏感管理服务优先使用 Cloudflare Tunnel，而不是 STUN Redirect。
 - Docker Desktop 不适合作为正式 STUN 网关；推荐 Linux host network。
 - `STUNDECK_LISTEN` 决定进程监听地址，控制面访问模式负责请求级限制；要从局域网或公网进入，两层都必须允许。
@@ -102,4 +111,4 @@ StunDeck 使用 Apache-2.0 许可证。Docker 镜像包含 MIT 许可的 [NATMap
 
 ## Development status
 
-The current release is an MVP. It is suitable for controlled self-hosted testing, but external reachability must still be verified from a different network. UPnP/NAT-PMP automation, multi-node agents, Cloudflare Tunnel fallback and Worker-based 303 responses are planned follow-up work.
+The current release is an MVP. It is suitable for controlled self-hosted testing, but external reachability must still be verified from a different network. Multi-node agents, Cloudflare Tunnel fallback and Worker-based 303 responses are planned follow-up work.

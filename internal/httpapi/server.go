@@ -87,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/services/{id}/start", s.protected(http.HandlerFunc(s.startService)))
 	mux.Handle("POST /api/v1/services/{id}/stop", s.protected(http.HandlerFunc(s.stopService)))
 	mux.Handle("POST /api/v1/services/{id}/sync", s.protected(http.HandlerFunc(s.syncService)))
+	mux.Handle("POST /api/v1/services/{id}/diagnose", s.protected(http.HandlerFunc(s.diagnoseService)))
 	mux.Handle("GET /api/v1/events", s.protected(http.HandlerFunc(s.events)))
 	mux.Handle("GET /api/v1/webhooks", s.protected(http.HandlerFunc(s.listWebhooks)))
 	mux.Handle("POST /api/v1/webhooks", s.protected(http.HandlerFunc(s.createWebhook)))

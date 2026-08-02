@@ -6,6 +6,8 @@ export interface ServiceDraft {
   targetPort: number
   protocol: 'tcp' | 'udp'
   bindPort: number
+  gatewayMode: 'none' | 'upnp' | 'natpmp'
+  gatewayAddress: string
   scheme: 'http' | 'https'
   publishMode: 'direct' | 'redirect'
   cloudflareConnectionId: string
@@ -24,6 +26,8 @@ export function createServiceDraft(connections: CloudflareConnection[] = []): Se
     targetPort: 80,
     protocol: 'tcp',
     bindPort: 0,
+    gatewayMode: 'none',
+    gatewayAddress: '',
     scheme: 'http',
     publishMode: 'direct',
     cloudflareConnectionId: connections[0]?.id ?? '',
@@ -43,6 +47,8 @@ export function serviceToDraft(service: Service): ServiceDraft {
     targetPort: service.targetPort,
     protocol: service.protocol,
     bindPort: service.bindPort,
+    gatewayMode: service.gatewayMode,
+    gatewayAddress: service.gatewayAddress,
     scheme: service.scheme,
     publishMode: service.publishMode,
     cloudflareConnectionId: service.cloudflareConnectionId,

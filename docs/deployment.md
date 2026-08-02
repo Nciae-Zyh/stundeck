@@ -6,7 +6,19 @@
 - 主路由、旁路由，或能够收到外部映射流量的局域网 Linux 主机。
 - Docker Engine host network，或直接运行二进制。
 
-如果 StunDeck 不运行在主路由，仍可能需要在路由器中设置 DMZ、端口转发、UPnP 或 NAT-PMP。第一版不会主动修改系统防火墙或路由器配置。
+如果 StunDeck 不运行在主路由，仍可能需要在路由器中设置 DMZ、端口转发、UPnP 或 NAT-PMP。服务默认不管理路由器；选择 UPnP/NAT-PMP 后，StunDeck 才会为该服务下发和撤销端口映射。
+
+## 路由器端口映射
+
+NATMap 获取到公网地址并不等于任意公网来源都能回连。局域网部署时可以在服务编辑页选择：
+
+- `UPnP`：推荐。自动发现 IGD，也可填写网关 IP 限制发现结果。
+- `NAT-PMP`：向指定或自动发现的默认网关申请同一公网端口。
+- `不自动管理`：适用于 StunDeck 直接运行在主路由，或已经配置 DMZ/手动端口转发的环境。
+
+容器必须使用 host network 才能正确发现局域网 UPnP 网关。多路由、多个出口或旁路由环境中建议明确填写真实出网网关；管理页“STUN 检测”会进行只读的 UPnP/NAT-PMP 能力探测，并单独显示端口映射是否已下发。
+
+UPnP/NAT-PMP 会修改路由器端口映射，应只在受信任的局域网中启用。异常断电可能让部分路由器暂时保留旧映射，可在路由器后台按 `StunDeck` 描述清理。
 
 ## Docker
 
@@ -23,6 +35,9 @@ Compose 配置具备以下默认值：
 - `no-new-privileges`
 - 仅持久化 `/var/lib/stundeck`
 - 不包含任何 Cloudflare 凭据
+- 显式清空 HTTP、HTTPS、ALL_PROXY 及其小写形式
+
+StunDeck 的运行容器应保持无代理环境。镜像拉取时临时使用的代理不要传入运行容器，也不要长期保留在 Docker 服务中；管理页的“STUN 检测”会再次检查运行时代理变量。
 
 如果目标平台确实要求修改 nftables，后期的防火墙适配器会使用独立 helper 和最小 `CAP_NET_ADMIN`，不会要求整个容器使用 `privileged: true`。
 

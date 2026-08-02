@@ -15,4 +15,4 @@ Never submit real API Tokens, account IDs, Zone IDs, hostnames, public IP mappin
 
 ## Scope
 
-Keep provider code behind explicit interfaces. Firewall, UPnP/NAT-PMP and Cloudflare Tunnel automation must be opt-in and must not require a blanket privileged container.
+Keep provider code behind explicit interfaces. Firewall and Cloudflare Tunnel automation must be opt-in and must not require a blanket privileged container. UPnP/NAT-PMP support must remain per-service opt-in and work without a privileged container.

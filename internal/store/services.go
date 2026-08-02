@@ -9,7 +9,7 @@ import (
 )
 
 const serviceColumns = `
-id, name, target_host, target_port, protocol, bind_port, scheme, publish_mode,
+id, name, target_host, target_port, protocol, bind_port, gateway_mode, gateway_address, scheme, publish_mode,
 cloudflare_connection_id, entry_hostname, origin_hostname, redirect_status,
 preserve_path, preserve_query, manage_dns, enabled, status, last_error,
 public_ip, public_port, mapping_changed_at, created_at, updated_at`
@@ -17,7 +17,7 @@ public_ip, public_port, mapping_changed_at, created_at, updated_at`
 func (s *Store) CreateService(ctx context.Context, service Service) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO services (`+serviceColumns+`)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		serviceValues(service)...,
 	)
 	if err != nil {
@@ -31,6 +31,7 @@ func (s *Store) UpdateService(ctx context.Context, service Service) error {
 	result, err := s.db.ExecContext(ctx, `
 UPDATE services SET
   name = ?, target_host = ?, target_port = ?, protocol = ?, bind_port = ?,
+  gateway_mode = ?, gateway_address = ?,
   scheme = ?, publish_mode = ?, cloudflare_connection_id = ?, entry_hostname = ?,
   origin_hostname = ?, redirect_status = ?, preserve_path = ?, preserve_query = ?,
   manage_dns = ?, enabled = ?, updated_at = ?
@@ -40,6 +41,8 @@ WHERE id = ?`,
 		service.TargetPort,
 		service.Protocol,
 		service.BindPort,
+		service.GatewayMode,
+		service.GatewayAddress,
 		service.Scheme,
 		service.PublishMode,
 		service.CloudflareConnectionID,
@@ -163,6 +166,8 @@ func serviceValues(service Service) []any {
 		service.TargetPort,
 		service.Protocol,
 		service.BindPort,
+		service.GatewayMode,
+		service.GatewayAddress,
 		service.Scheme,
 		service.PublishMode,
 		service.CloudflareConnectionID,
@@ -199,6 +204,8 @@ func scanService(scanner rowScanner) (Service, error) {
 		&service.TargetPort,
 		&service.Protocol,
 		&service.BindPort,
+		&service.GatewayMode,
+		&service.GatewayAddress,
 		&service.Scheme,
 		&service.PublishMode,
 		&service.CloudflareConnectionID,

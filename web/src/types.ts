@@ -43,6 +43,8 @@ export interface Service {
   targetPort: number
   protocol: 'tcp' | 'udp'
   bindPort: number
+  gatewayMode: 'none' | 'upnp' | 'natpmp'
+  gatewayAddress: string
   scheme: 'http' | 'https'
   publishMode: 'direct' | 'redirect'
   cloudflareConnectionId: string
@@ -60,6 +62,27 @@ export interface Service {
   mappingChangedAt?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface DiagnosticCheck {
+  key: string
+  label: string
+  category: 'environment' | 'target' | 'stun' | 'gateway' | 'runtime' | 'external'
+  status: 'pass' | 'warn' | 'fail' | 'info'
+  message: string
+  durationMs: number
+}
+
+export interface DiagnosticReport {
+  serviceId: string
+  outcome: 'pass' | 'warning' | 'fail'
+  stunFeasible: boolean
+  targetReady: boolean
+  gatewayReady: boolean
+  mappingActive: boolean
+  externalInboundVerified: boolean
+  checkedAt: string
+  checks: DiagnosticCheck[]
 }
 
 export interface EventItem {

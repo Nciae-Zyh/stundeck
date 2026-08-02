@@ -23,6 +23,8 @@ type serviceRequest struct {
 	TargetPort             int    `json:"targetPort"`
 	Protocol               string `json:"protocol"`
 	BindPort               int    `json:"bindPort"`
+	GatewayMode            string `json:"gatewayMode"`
+	GatewayAddress         string `json:"gatewayAddress"`
 	Scheme                 string `json:"scheme"`
 	PublishMode            string `json:"publishMode"`
 	CloudflareConnectionID string `json:"cloudflareConnectionId"`
@@ -177,6 +179,20 @@ func (s *Server) syncService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sync": result})
 }
 
+func (s *Server) diagnoseService(w http.ResponseWriter, r *http.Request) {
+	id, ok := requireID(w, r)
+	if !ok {
+		return
+	}
+	service, err := s.store.Service(r.Context(), id)
+	if err != nil {
+		mapStoreError(w, err)
+		return
+	}
+	report := s.engine.Diagnose(r.Context(), service)
+	writeJSON(w, http.StatusOK, map[string]any{"diagnostic": report})
+}
+
 func (s *Server) natmapEvent(w http.ResponseWriter, r *http.Request) {
 	if !bearerMatches(r.Header.Get("Authorization"), s.internalToken) {
 		writeError(w, http.StatusUnauthorized, "invalid_callback_token", "Callback token is invalid")
@@ -218,7 +234,24 @@ func (s *Server) handleMapping(mapping engine.Mapping) {
 		})
 	}
 	service, err := s.store.Service(ctx, mapping.ServiceID)
-	if err != nil || service.PublishMode != "redirect" {
+	if err != nil {
+		return
+	}
+	if service.GatewayMode != "none" {
+		if err := s.engine.ApplyGatewayMapping(ctx, service, mapping); err != nil {
+			_ = s.store.SetServiceRuntime(ctx, service.ID, "gateway_error", err.Error(), true)
+			s.addEvent(ctx, store.Event{ServiceID: service.ID, Type: "gateway.mapping_failed", Level: "error", Message: err.Error()})
+			return
+		}
+		s.addEvent(ctx, store.Event{
+			ServiceID: service.ID,
+			Type:      "gateway.mapping_ready",
+			Level:     "info",
+			Message:   strings.ToUpper(service.GatewayMode) + " gateway mapping is active",
+		})
+		_ = s.store.SetServiceRuntime(ctx, service.ID, "gateway_mapped", "", true)
+	}
+	if service.PublishMode != "redirect" {
 		return
 	}
 	if _, err := s.syncCloudflare(ctx, service); err != nil {
@@ -261,6 +294,8 @@ func (s *Server) serviceFromRequest(ctx context.Context, input serviceRequest) (
 		TargetPort:             input.TargetPort,
 		Protocol:               strings.ToLower(strings.TrimSpace(input.Protocol)),
 		BindPort:               input.BindPort,
+		GatewayMode:            strings.ToLower(strings.TrimSpace(input.GatewayMode)),
+		GatewayAddress:         strings.TrimSpace(input.GatewayAddress),
 		Scheme:                 strings.ToLower(strings.TrimSpace(input.Scheme)),
 		PublishMode:            strings.ToLower(strings.TrimSpace(input.PublishMode)),
 		CloudflareConnectionID: strings.TrimSpace(input.CloudflareConnectionID),
@@ -285,6 +320,15 @@ func (s *Server) serviceFromRequest(ctx context.Context, input serviceRequest) (
 	}
 	if service.BindPort != 0 && (service.BindPort < 1024 || service.BindPort > 65535) {
 		return store.Service{}, errors.New("bind port must be 0 or between 1024 and 65535")
+	}
+	if service.GatewayMode == "" {
+		service.GatewayMode = "none"
+	}
+	if service.GatewayMode != "none" && service.GatewayMode != "upnp" && service.GatewayMode != "natpmp" {
+		return store.Service{}, errors.New("gateway mode must be none, upnp or natpmp")
+	}
+	if service.GatewayAddress != "" && net.ParseIP(service.GatewayAddress) == nil {
+		return store.Service{}, errors.New("gateway address must be an IP address")
 	}
 	if service.Scheme == "" {
 		service.Scheme = "http"

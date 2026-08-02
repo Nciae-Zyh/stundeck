@@ -22,6 +22,12 @@ services:
       STUNDECK_DATA_DIR: /var/lib/stundeck
       STUNDECK_SECURE_COOKIES: "false"
       TZ: Asia/Shanghai
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
 
 volumes:
   stundeck-data:

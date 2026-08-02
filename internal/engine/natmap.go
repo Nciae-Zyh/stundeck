@@ -38,8 +38,11 @@ type Config struct {
 }
 
 type process struct {
-	cancel context.CancelFunc
-	cmd    *exec.Cmd
+	cancel            context.CancelFunc
+	ctx               context.Context
+	cmd               *exec.Cmd
+	gateway           *GatewayMapping
+	gatewayGeneration uint64
 }
 
 type Manager struct {
@@ -109,7 +112,7 @@ func (m *Manager) Start(ctx context.Context, service store.Service) error {
 		m.mu.Unlock()
 		return fmt.Errorf("start natmap: %w", err)
 	}
-	m.processes[service.ID] = &process{cancel: cancel, cmd: cmd}
+	m.processes[service.ID] = &process{cancel: cancel, ctx: processContext, cmd: cmd}
 	m.mu.Unlock()
 
 	_ = m.store.SetServiceRuntime(context.Background(), service.ID, "discovering", "", true)
@@ -131,6 +134,13 @@ func (m *Manager) Stop(serviceID string) error {
 	}
 	running.cancel()
 	_ = running.cmd.Process.Signal(os.Interrupt)
+	if running.gateway != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
+		defer cancel()
+		if err := removeGatewayMapping(cleanupCtx, *running.gateway); err != nil {
+			m.logger.Warn("remove gateway mapping", "service_id", serviceID, "error", err)
+		}
+	}
 	return m.store.SetServiceRuntime(context.Background(), serviceID, "stopped", "", false)
 }
 
@@ -144,6 +154,11 @@ func (m *Manager) StopAll() {
 	m.mu.Unlock()
 	for _, running := range processes {
 		running.cancel()
+		if running.gateway != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
+			_ = removeGatewayMapping(cleanupCtx, *running.gateway)
+			cancel()
+		}
 	}
 }
 
@@ -162,6 +177,11 @@ func (m *Manager) wait(serviceID string, ctx context.Context, cmd *exec.Cmd) {
 		delete(m.processes, serviceID)
 	}
 	m.mu.Unlock()
+	if exists && running.gateway != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
+		_ = removeGatewayMapping(cleanupCtx, *running.gateway)
+		cancel()
+	}
 	if ctx.Err() != nil {
 		return
 	}

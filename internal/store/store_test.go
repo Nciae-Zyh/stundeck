@@ -17,7 +17,7 @@ func TestStoreServiceMappingLifecycle(t *testing.T) {
 	now := time.Now()
 	service := Service{
 		ID: "service-1", Name: "NAS", TargetHost: "192.168.1.20", TargetPort: 8080,
-		Protocol: "tcp", Scheme: "http", PublishMode: "direct", RedirectStatus: 302,
+		Protocol: "tcp", GatewayMode: "upnp", GatewayAddress: "192.168.1.1", Scheme: "http", PublishMode: "direct", RedirectStatus: 302,
 		PreservePath: true, PreserveQuery: true, Status: "stopped", CreatedAt: now, UpdatedAt: now,
 	}
 	if err := database.CreateService(ctx, service); err != nil {
@@ -43,6 +43,21 @@ func TestStoreServiceMappingLifecycle(t *testing.T) {
 	}
 	if stored.PublicIP != "203.0.113.10" || stored.PublicPort != 45678 || stored.Status != "mapped" {
 		t.Fatalf("unexpected stored service: %#v", stored)
+	}
+	if stored.GatewayMode != "upnp" || stored.GatewayAddress != "192.168.1.1" {
+		t.Fatalf("gateway configuration was not preserved: %#v", stored)
+	}
+	stored.GatewayMode = "natpmp"
+	stored.GatewayAddress = "192.168.1.254"
+	if err := database.UpdateService(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := database.Service(ctx, service.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.GatewayMode != "natpmp" || updated.GatewayAddress != "192.168.1.254" {
+		t.Fatalf("gateway update was not preserved: %#v", updated)
 	}
 }
 

@@ -4,7 +4,7 @@ import { api } from '../api'
 import ServiceForm from '../components/ServiceForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useDashboardContext } from '../dashboardContext'
-import type { Service } from '../types'
+import type { DiagnosticReport, Service } from '../types'
 import { formatEndpoint } from '../utils'
 
 const { services, connections, reload } = useDashboardContext()
@@ -12,6 +12,8 @@ const busyService = ref('')
 const editingServiceId = ref('')
 const restartAfterEdit = ref(false)
 const error = ref('')
+const diagnosingService = ref('')
+const diagnostics = ref<Record<string, DiagnosticReport>>({})
 const editingService = computed(() => services.value.find((service) => service.id === editingServiceId.value))
 
 async function serviceAction(service: Service, action: 'start' | 'stop' | 'sync' | 'delete') {
@@ -72,6 +74,26 @@ async function cancelEdit() {
     busyService.value = ''
   }
 }
+
+async function diagnose(service: Service) {
+  diagnosingService.value = service.id
+  error.value = ''
+  try {
+    const result = await api<{ diagnostic: DiagnosticReport }>(`/api/v1/services/${service.id}/diagnose`, { method: 'POST' })
+    diagnostics.value = { ...diagnostics.value, [service.id]: result.diagnostic }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'STUN 检测失败'
+  } finally {
+    diagnosingService.value = ''
+  }
+}
+
+function diagnosticTitle(report: DiagnosticReport) {
+  if (report.gatewayReady && report.targetReady) return '路由器端口已放行，等待公网复核'
+  if (report.stunFeasible && report.targetReady) return '已取得映射候选，目标服务可用'
+  if (report.stunFeasible) return '已取得映射候选，但目标服务配置有阻断项'
+  return '本机 STUN 映射条件未通过'
+}
 </script>
 
 <template>
@@ -80,22 +102,39 @@ async function cancelEdit() {
     <p v-if="error" class="global-error">{{ error }}</p>
     <section class="panel services-panel">
       <div v-if="services.length" class="service-list">
-        <article v-for="service in services" :key="service.id" class="service-row" :data-editing="editingServiceId === service.id">
-          <div class="service-signal"><i :data-active="['healthy', 'mapped', 'discovering'].includes(service.status)" /></div>
-          <div class="service-main">
-            <div class="service-title"><strong>{{ service.name }}</strong><StatusBadge :status="service.status" /></div>
-            <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ formatEndpoint(service.publicIp, service.publicPort) }}</p>
-            <small v-if="service.entryHostname">{{ service.redirectStatus }} · https://{{ service.entryHostname }}</small>
-            <small v-if="service.lastError" class="error-text">{{ service.lastError }}</small>
-          </div>
-          <div class="service-actions">
-            <button v-if="!service.enabled" class="button small primary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'start')">启动</button>
-            <button v-else class="button small secondary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'stop')">停止</button>
-            <button class="text-button" type="button" :disabled="busyService === service.id" @click="beginEdit(service)">编辑</button>
-            <button v-if="service.publishMode === 'redirect' && service.publicIp" class="text-button" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'sync')">同步 CF</button>
-            <button class="text-button danger" type="button" :disabled="service.enabled || busyService === service.id" @click="serviceAction(service, 'delete')">删除</button>
-          </div>
-        </article>
+        <div v-for="service in services" :key="service.id" class="service-block">
+          <article class="service-row" :data-editing="editingServiceId === service.id">
+            <div class="service-signal"><i :data-active="['healthy', 'mapped', 'gateway_mapped', 'discovering'].includes(service.status)" /></div>
+            <div class="service-main">
+              <div class="service-title"><strong>{{ service.name }}</strong><StatusBadge :status="service.status" /></div>
+              <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ formatEndpoint(service.publicIp, service.publicPort) }}</p>
+              <small>路由器放行：{{ service.gatewayMode === 'none' ? '未启用' : service.gatewayMode.toUpperCase() }}<template v-if="service.gatewayAddress"> · {{ service.gatewayAddress }}</template></small>
+              <small v-if="service.entryHostname">{{ service.redirectStatus }} · https://{{ service.entryHostname }}</small>
+              <small v-if="service.lastError" class="error-text">{{ service.lastError }}</small>
+            </div>
+            <div class="service-actions">
+              <button v-if="!service.enabled" class="button small primary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'start')">启动</button>
+              <button v-else class="button small secondary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'stop')">停止</button>
+              <button class="text-button" type="button" :disabled="busyService === service.id" @click="beginEdit(service)">编辑</button>
+              <button class="text-button" type="button" :disabled="diagnosingService === service.id" @click="diagnose(service)">{{ diagnosingService === service.id ? '检测中…' : 'STUN 检测' }}</button>
+              <button v-if="service.publishMode === 'redirect' && service.publicIp" class="text-button" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'sync')">同步 CF</button>
+              <button class="text-button danger" type="button" :disabled="service.enabled || busyService === service.id" @click="serviceAction(service, 'delete')">删除</button>
+            </div>
+          </article>
+          <section v-if="diagnostics[service.id]" class="diagnostic-card" :data-outcome="diagnostics[service.id].outcome">
+            <header>
+              <div><p class="eyebrow">STUN DIAGNOSTIC</p><h3>{{ diagnosticTitle(diagnostics[service.id]) }}</h3></div>
+              <span class="diagnostic-summary">{{ diagnostics[service.id].gatewayReady ? '待外网验证' : '需要处理' }}</span>
+            </header>
+            <div class="diagnostic-grid">
+              <article v-for="check in diagnostics[service.id].checks" :key="check.key" class="diagnostic-check" :data-status="check.status">
+                <i /><div><strong>{{ check.label }}</strong><p>{{ check.message }}</p></div><small>{{ check.durationMs }} ms</small>
+              </article>
+            </div>
+            <p v-if="service.entryHostname" class="diagnostic-verify">蜂窝网络验证入口：<a :href="`https://${service.entryHostname}`" target="_blank" rel="noreferrer">https://{{ service.entryHostname }}</a></p>
+            <p class="diagnostic-note">Cloudflare 302 是发布入口，不是隧道。局域网运行 StunDeck 时，通常还需要 UPnP/NAT-PMP、DMZ 或手动端口转发把公网端口放行到穿透监听端口；公网回连仍应使用手机蜂窝网络或独立外部探针复核。</p>
+          </section>
+        </div>
       </div>
       <div v-else class="empty-state"><span>NO SIGNALS YET</span><p>添加第一个局域网服务，StunDeck 会负责后续映射与同步。</p></div>
       <ServiceForm

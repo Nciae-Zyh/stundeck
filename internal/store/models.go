@@ -40,6 +40,8 @@ type Service struct {
 	TargetPort             int       `json:"targetPort"`
 	Protocol               string    `json:"protocol"`
 	BindPort               int       `json:"bindPort"`
+	GatewayMode            string    `json:"gatewayMode"`
+	GatewayAddress         string    `json:"gatewayAddress"`
 	Scheme                 string    `json:"scheme"`
 	PublishMode            string    `json:"publishMode"`
 	CloudflareConnectionID string    `json:"cloudflareConnectionId"`

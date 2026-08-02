@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS services (
   target_port INTEGER NOT NULL,
   protocol TEXT NOT NULL,
   bind_port INTEGER NOT NULL DEFAULT 0,
+  gateway_mode TEXT NOT NULL DEFAULT 'none',
+  gateway_address TEXT NOT NULL DEFAULT '',
   scheme TEXT NOT NULL DEFAULT 'http',
   publish_mode TEXT NOT NULL DEFAULT 'direct',
   cloudflare_connection_id TEXT NOT NULL DEFAULT '',
@@ -148,6 +150,46 @@ CREATE TABLE IF NOT EXISTS settings (
 	}
 	if err := s.ensureUserSecurityColumns(ctx); err != nil {
 		return err
+	}
+	if err := s.ensureServiceGatewayColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureServiceGatewayColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(services)")
+	if err != nil {
+		return fmt.Errorf("inspect services schema: %w", err)
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan services schema: %w", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close services schema rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate services schema: %w", err)
+	}
+	if !columns["gateway_mode"] {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE services ADD COLUMN gateway_mode TEXT NOT NULL DEFAULT 'none'"); err != nil {
+			return fmt.Errorf("add gateway mode column: %w", err)
+		}
+	}
+	if !columns["gateway_address"] {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE services ADD COLUMN gateway_address TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("add gateway address column: %w", err)
+		}
 	}
 	return nil
 }

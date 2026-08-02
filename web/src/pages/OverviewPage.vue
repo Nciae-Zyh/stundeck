@@ -21,7 +21,7 @@ const mappingCount = computed(() => services.value.filter((service) => Boolean(s
     <section class="metrics-grid">
       <article><p>服务</p><strong>{{ services.length.toString().padStart(2, '0') }}</strong><small>CONFIGURED</small></article>
       <article><p>公网映射</p><strong>{{ mappingCount.toString().padStart(2, '0') }}</strong><small>DISCOVERED</small></article>
-      <article><p>正常运行</p><strong>{{ healthyCount.toString().padStart(2, '0') }}</strong><small>HEALTHY</small></article>
+      <article><p>映射已同步</p><strong>{{ healthyCount.toString().padStart(2, '0') }}</strong><small>EXTERNAL UNVERIFIED</small></article>
       <article><p>运行版本</p><strong class="version-number">{{ status?.version ?? '—' }}</strong><small>{{ status?.commit ?? '—' }}</small></article>
     </section>
 
