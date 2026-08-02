@@ -1,0 +1,27 @@
+services:
+  stundeck:
+    image: ghcr.io/nciae-zyh/stundeck:latest
+    build:
+      context: .
+      args:
+        VERSION: dev
+        COMMIT: local
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    volumes:
+      - stundeck-data:/var/lib/stundeck
+    environment:
+      STUNDECK_LISTEN: 0.0.0.0:8080
+      STUNDECK_DATA_DIR: /var/lib/stundeck
+      STUNDECK_SECURE_COOKIES: "false"
+      TZ: Asia/Shanghai
+
+volumes:
+  stundeck-data:
