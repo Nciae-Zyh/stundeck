@@ -94,6 +94,12 @@ function diagnosticTitle(report: DiagnosticReport) {
   if (report.stunFeasible) return '已取得映射候选，但目标服务配置有阻断项'
   return '本机 STUN 映射条件未通过'
 }
+
+function gatewayModeLabel(mode: Service['gatewayMode']) {
+  if (mode === 'upnp') return 'UPnP'
+  if (mode === 'natpmp') return 'NAT-PMP'
+  return '未启用'
+}
 </script>
 
 <template>
@@ -108,7 +114,7 @@ function diagnosticTitle(report: DiagnosticReport) {
             <div class="service-main">
               <div class="service-title"><strong>{{ service.name }}</strong><StatusBadge :status="service.status" /></div>
               <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ formatEndpoint(service.publicIp, service.publicPort) }}</p>
-              <small>路由器放行：{{ service.gatewayMode === 'none' ? '未启用' : service.gatewayMode.toUpperCase() }}<template v-if="service.gatewayAddress"> · {{ service.gatewayAddress }}</template></small>
+              <small>路由器放行：{{ gatewayModeLabel(service.gatewayMode) }}<template v-if="service.gatewayAddress"> · {{ service.gatewayAddress }}</template></small>
               <small v-if="service.entryHostname">{{ service.redirectStatus }} · https://{{ service.entryHostname }}</small>
               <small v-if="service.lastError" class="error-text">{{ service.lastError }}</small>
             </div>

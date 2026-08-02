@@ -107,10 +107,10 @@ func (m *Manager) Diagnose(ctx context.Context, service store.Service) Diagnosti
 				return "warn", "未启用 UPnP/NAT-PMP；局域网运行时可能只能取得映射，无法接受公网连接"
 			}
 			if m.GatewayMappingActive(service.ID) {
-				return "pass", strings.ToUpper(service.GatewayMode) + " 端口映射已下发"
+				return "pass", gatewayModeLabel(service.GatewayMode) + " 端口映射已下发"
 			}
 			if m.Running(service.ID) && net.ParseIP(service.PublicIP) != nil && service.PublicPort > 0 {
-				return "fail", strings.ToUpper(service.GatewayMode) + " 已配置，但尚未成功下发端口映射"
+				return "fail", gatewayModeLabel(service.GatewayMode) + " 已配置，但尚未成功下发端口映射"
 			}
 			return "info", "取得公网映射后才会向路由器下发端口映射"
 		}},

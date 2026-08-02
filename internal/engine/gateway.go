@@ -541,3 +541,13 @@ func shortServiceID(serviceID string) string {
 	}
 	return serviceID
 }
+
+func gatewayModeLabel(mode string) string {
+	if mode == "upnp" {
+		return "UPnP"
+	}
+	if mode == "natpmp" {
+		return "NAT-PMP"
+	}
+	return strings.ToUpper(mode)
+}

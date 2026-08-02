@@ -247,7 +247,7 @@ func (s *Server) handleMapping(mapping engine.Mapping) {
 			ServiceID: service.ID,
 			Type:      "gateway.mapping_ready",
 			Level:     "info",
-			Message:   strings.ToUpper(service.GatewayMode) + " gateway mapping is active",
+			Message:   service.GatewayMode + " gateway mapping is active",
 		})
 		_ = s.store.SetServiceRuntime(ctx, service.ID, "gateway_mapped", "", true)
 	}
