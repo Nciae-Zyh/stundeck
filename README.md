@@ -105,6 +105,10 @@ StunDeck 为每个 Redirect Rule 写入稳定的 `ref`，只通过 Cloudflare �
 - [架构说明](docs/architecture.md)
 - [安全策略](SECURITY.md)
 
+## 社区链接
+
+- [LINUX DO](https://linux.do/) — 真诚、友善、团结、专业的技术社区。
+
 ## 开源组件
 
 StunDeck 使用 Apache-2.0 许可证。Docker 镜像包含 MIT 许可的 [NATMap](https://github.com/heiher/natmap)，版本和下载校验值固定在 Dockerfile 中；其许可证位于 [third_party/NATMap-LICENSE](third_party/NATMap-LICENSE)。
