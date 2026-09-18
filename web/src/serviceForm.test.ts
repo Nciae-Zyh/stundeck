@@ -20,6 +20,8 @@ describe('service form values', () => {
       gatewayAddress: '10.1.0.1',
       scheme: 'http',
       publishMode: 'redirect',
+      tunnelProtocol: 'http',
+      edgePort: 443,
       cloudflareConnectionId: 'connection-1',
       entryHostname: 'panel.example.com',
       originHostname: '',
@@ -34,6 +36,7 @@ describe('service form values', () => {
     } satisfies Service
 
     expect(serviceToDraft(service)).toEqual({
+      privateNetwork: '',
       name: 'Private panel',
       targetHost: '10.1.2.191',
       targetPort: 5666,
@@ -43,6 +46,8 @@ describe('service form values', () => {
       gatewayAddress: '10.1.0.1',
       scheme: 'http',
       publishMode: 'redirect',
+      tunnelProtocol: 'http',
+      edgePort: 443,
       cloudflareConnectionId: 'connection-1',
       entryHostname: 'panel.example.com',
       originHostname: '',

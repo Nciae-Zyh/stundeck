@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	cf "github.com/Nciae-Zyh/stundeck/internal/cloudflare"
 	"github.com/Nciae-Zyh/stundeck/internal/security"
 	"github.com/Nciae-Zyh/stundeck/internal/store"
 )
@@ -32,15 +31,15 @@ func (s *Server) validateCloudflare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "token_required", "Cloudflare API Token is required")
 		return
 	}
-	client := cf.New(input.Token)
-	status, err := client.VerifyToken(r.Context())
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "token_invalid", err.Error())
-		return
-	}
+	client := s.publisher.NewClient(input.Token)
 	zones, err := client.Zones(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "zone_access_failed", "Token is active but cannot list zones; add Zone Read permission")
+		writeError(w, 400, "zone_access_failed", "无法列出 Zone，请检查 Zone Read、资源范围与网络连接")
+		return
+	}
+	status, err := client.VerifyForZones(r.Context(), zones)
+	if err != nil {
+		writeError(w, 400, "token_invalid", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"token": status, "zones": zones})
@@ -68,15 +67,26 @@ func (s *Server) saveCloudflareConnection(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "connection_invalid", "Name, token, zone ID and zone name are required")
 		return
 	}
-	client := cf.New(input.Token)
-	if _, err := client.VerifyToken(r.Context()); err != nil {
-		writeError(w, http.StatusBadRequest, "token_invalid", err.Error())
-		return
-	}
+	client := s.publisher.NewClient(input.Token)
 	zones, err := client.Zones(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "zone_access_failed", "Token cannot list the selected zone")
+		writeError(w, 400, "zone_access_failed", "无法读取所选 Zone，请检查 Token 权限与网络连接")
 		return
+	}
+	if _, err := client.VerifyForZones(r.Context(), zones); err != nil {
+		writeError(w, 400, "token_invalid", err.Error())
+		return
+	}
+	if input.ID != "" {
+		existing, err := s.store.CloudflareConnection(r.Context(), input.ID)
+		if err != nil {
+			mapStoreError(w, err)
+			return
+		}
+		if existing.ZoneID != input.ZoneID || existing.ZoneName != input.ZoneName {
+			writeError(w, 400, "zone_immutable", "更新 Token 时不能更换 Zone，请新建连接")
+			return
+		}
 	}
 	matched := false
 	for _, zone := range zones {

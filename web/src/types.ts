@@ -9,6 +9,7 @@ export interface SystemStatus {
   uptimeSeconds: number
   initialized: boolean
   engineAvailable: boolean
+  tunnelAvailable: boolean
 }
 
 export interface AccessPolicy {
@@ -30,13 +31,19 @@ export interface CloudflareConnection {
   updatedAt: string
 }
 
+export type PublishMode = 'direct' | 'redirect' | 'dns' | 'proxy' | 'tunnel' | 'spectrum' | 'quick' | 'warp' | 'workers'
+export type TunnelProtocol = 'http' | 'https' | 'tcp' | 'ssh' | 'rdp'
+
 export interface Zone {
   id: string
   name: string
   status: string
+  account: { id: string; name: string }
 }
 
 export interface Service {
+	privateNetwork?: string
+	runtimeUrl?: string
   id: string
   name: string
   targetHost: string
@@ -46,7 +53,9 @@ export interface Service {
   gatewayMode: 'none' | 'upnp' | 'natpmp'
   gatewayAddress: string
   scheme: 'http' | 'https'
-  publishMode: 'direct' | 'redirect'
+  publishMode: PublishMode
+  tunnelProtocol?: TunnelProtocol
+  edgePort?: number
   cloudflareConnectionId: string
   entryHostname: string
   originHostname: string
@@ -116,4 +125,39 @@ export interface Webhook {
 
 export interface ApiErrorShape {
   error?: { code?: string; message?: string }
+}
+
+export interface CloudflareCapability {
+  state: 'available' | 'read_only' | 'unverified' | 'unavailable' | 'error'
+  permission: string
+  message: string
+}
+export interface CloudflareDomain {
+  hostname: string
+  proxied: boolean
+  accessEligible: boolean
+  reason: string
+  applicationId?: string
+  managed: boolean
+  serviceId?: string
+}
+export interface CloudflareApplication {
+  id: string
+  name: string
+  domain: string
+  managed?: boolean
+  session_duration: string
+  policies: { decision: string; include: { email?: { email: string } }[] }[]
+}
+export interface CloudflareInspection {
+  zone: Zone
+  capabilities: Record<string, CloudflareCapability>
+  domains: CloudflareDomain[]
+  applications: CloudflareApplication[]
+  accessScope: 'accounts' | 'zones'
+  checkedAt: string
+}
+export interface InspectionResponse {
+  inspection: CloudflareInspection
+  tunnelAvailable: boolean
 }

@@ -34,6 +34,10 @@ type CloudflareConnection struct {
 }
 
 type Service struct {
+	PrivateNetwork         string    `json:"privateNetwork,omitempty"`
+	RuntimeURL             string    `json:"runtimeUrl,omitempty"`
+	TunnelProtocol         string    `json:"tunnelProtocol"`
+	EdgePort               int       `json:"edgePort"`
 	ID                     string    `json:"id"`
 	Name                   string    `json:"name"`
 	TargetHost             string    `json:"targetHost"`
@@ -59,6 +63,14 @@ type Service struct {
 	MappingChangedAt       time.Time `json:"mappingChangedAt,omitempty"`
 	CreatedAt              time.Time `json:"createdAt"`
 	UpdatedAt              time.Time `json:"updatedAt"`
+}
+
+func (s Service) UsesConnector() bool {
+	return s.PublishMode == "tunnel" || s.PublishMode == "quick" || s.PublishMode == "warp"
+}
+
+func (s Service) UsesCloudflareAccount() bool {
+	return s.PublishMode != "direct" && s.PublishMode != "quick"
 }
 
 type Event struct {

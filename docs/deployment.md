@@ -110,3 +110,12 @@ stundeck healthcheck http://127.0.0.1:8080/api/v1/health
 ```
 
 健康检查只证明控制面可响应，不代表公网映射已从外部网络验证。
+
+
+## Cloudflare Tunnel
+
+Docker / fnOS 的 StunDeck 镜像内置 cloudflared。普通二进制部署需要官方 cloudflared，在 PATH 中可用或通过 `STUNDECK_CLOUDFLARED_BINARY` 指定。Tunnel / Quick Tunnel / WARP 服务不依赖 NATMap、UPnP / NAT-PMP 或入站端口；只需运行环境能访问 Cloudflare 以及所配置的局域网服务。
+
+创建带 Tunnel Edit 和指定 Zone DNS Edit 的连接，选择 Tunnel 发布并填写本地协议、地址与端口，启动后自动创建 Tunnel 和 DNS。具体权限、Access 与清理流程见 [Cloudflare 配置](cloudflare.md)。
+
+Quick Tunnel 无需 Token，生成临时公网网址。WARP 私网需要已注册的 Cloudflare One 客户端、Split Tunnels 与 Gateway 策略；不创建公网入口 DNS。Workers 代理使用 NATMap 公网映射，需要外部可回连，并增加 Workers Scripts / Workers Routes 权限。

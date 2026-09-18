@@ -80,13 +80,14 @@ func run() error {
 	}
 	dispatcher := webhook.NewDispatcher(database, cipher, logger)
 	manager := engine.NewManager(engine.Config{
-		Binary:          appConfig.NatmapBinary,
-		NotifyBinary:    appConfig.NotifyBinary,
-		CallbackURL:     callbackURL,
-		CallbackToken:   internalToken,
-		STUNServer:      appConfig.STUNServer,
-		KeepAliveServer: appConfig.KeepAliveServer,
-		KeepAlive:       appConfig.KeepAlive,
+		Binary:            appConfig.NatmapBinary,
+		CloudflaredBinary: appConfig.CloudflaredBinary,
+		NotifyBinary:      appConfig.NotifyBinary,
+		CallbackURL:       callbackURL,
+		CallbackToken:     internalToken,
+		STUNServer:        appConfig.STUNServer,
+		KeepAliveServer:   appConfig.KeepAliveServer,
+		KeepAlive:         appConfig.KeepAlive,
 	}, database, logger)
 	api := httpapi.New(httpapi.Config{
 		Store:         database,

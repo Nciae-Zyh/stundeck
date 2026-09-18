@@ -12,12 +12,12 @@ const serviceColumns = `
 id, name, target_host, target_port, protocol, bind_port, gateway_mode, gateway_address, scheme, publish_mode,
 cloudflare_connection_id, entry_hostname, origin_hostname, redirect_status,
 preserve_path, preserve_query, manage_dns, enabled, status, last_error,
-public_ip, public_port, mapping_changed_at, created_at, updated_at`
+public_ip, public_port, mapping_changed_at, created_at, updated_at, tunnel_protocol, edge_port, private_network, runtime_url`
 
 func (s *Store) CreateService(ctx context.Context, service Service) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO services (`+serviceColumns+`)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		serviceValues(service)...,
 	)
 	if err != nil {
@@ -34,7 +34,7 @@ UPDATE services SET
   gateway_mode = ?, gateway_address = ?,
   scheme = ?, publish_mode = ?, cloudflare_connection_id = ?, entry_hostname = ?,
   origin_hostname = ?, redirect_status = ?, preserve_path = ?, preserve_query = ?,
-  manage_dns = ?, enabled = ?, updated_at = ?
+  manage_dns = ?, enabled = ?, updated_at = ?, tunnel_protocol = ?, edge_port = ?, private_network = ?
 WHERE id = ?`,
 		service.Name,
 		service.TargetHost,
@@ -54,6 +54,9 @@ WHERE id = ?`,
 		service.ManageDNS,
 		service.Enabled,
 		timeText(service.UpdatedAt),
+		service.TunnelProtocol,
+		service.EdgePort,
+		service.PrivateNetwork,
 		service.ID,
 	)
 	if err != nil {
@@ -125,7 +128,9 @@ func (s *Store) DeleteService(ctx context.Context, id string) error {
 
 func (s *Store) SetServiceRuntime(ctx context.Context, id, status, lastError string, enabled bool) error {
 	result, err := s.db.ExecContext(ctx, `
-UPDATE services SET status = ?, last_error = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+UPDATE services SET runtime_url = CASE WHEN ? IN ('stopped', 'error', 'tunnel_starting') THEN '' ELSE runtime_url END,
+status = ?, last_error = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		status,
 		status, lastError, enabled, timeText(time.Now()), id,
 	)
 	if err != nil {
@@ -185,6 +190,10 @@ func serviceValues(service Service) []any {
 		mappingChangedAt,
 		timeText(service.CreatedAt),
 		timeText(service.UpdatedAt),
+		service.TunnelProtocol,
+		service.EdgePort,
+		service.PrivateNetwork,
+		service.RuntimeURL,
 	}
 }
 
@@ -223,6 +232,10 @@ func scanService(scanner rowScanner) (Service, error) {
 		&mappingChangedAt,
 		&createdAt,
 		&updatedAt,
+		&service.TunnelProtocol,
+		&service.EdgePort,
+		&service.PrivateNetwork,
+		&service.RuntimeURL,
 	)
 	if err != nil {
 		return Service{}, err
@@ -237,4 +250,9 @@ func scanService(scanner rowScanner) (Service, error) {
 	service.CreatedAt = parseTime(createdAt)
 	service.UpdatedAt = parseTime(updatedAt)
 	return service, nil
+}
+
+func (s *Store) SetServiceRuntimeURL(ctx context.Context, id, runtimeURL string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE services SET runtime_url = ?, updated_at = ? WHERE id = ?`, runtimeURL, timeText(time.Now()), id)
+	return err
 }

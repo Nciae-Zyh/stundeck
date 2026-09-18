@@ -7,6 +7,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import { useDashboardContext } from '../dashboardContext'
 import type { DiagnosticReport, Service } from '../types'
 import { formatEndpoint } from '../utils'
+import { modeLabels, serviceURL, usesConnector, usesCloudflareAccount } from '../cloudflare'
 
 const { services, connections, reload } = useDashboardContext()
 const busyService = ref('')
@@ -17,7 +18,8 @@ const diagnosingService = ref('')
 const diagnostics = ref<Record<string, DiagnosticReport>>({})
 const editingService = computed(() => services.value.find((service) => service.id === editingServiceId.value))
 
-async function serviceAction(service: Service, action: 'start' | 'stop' | 'sync' | 'delete') {
+async function serviceAction(service: Service, action: 'start' | 'stop' | 'sync' | 'delete' | 'cleanup') {
+  if (action === 'cleanup' && !window.confirm(`清理“${service.name}”的云端发布？将移除此服务拥有的 DNS、Tunnel、私网路由、Workers、Redirect 或 Spectrum，Access 策略保留。`)) return
   if (action === 'delete' && !window.confirm(`删除服务“${service.name}”？`)) return
   busyService.value = service.id
   error.value = ''
@@ -105,27 +107,34 @@ function gatewayModeLabel(mode: Service['gatewayMode']) {
 
 <template>
   <div class="page-stack">
-    <header class="page-heading"><div><p class="eyebrow">SERVICES</p><h1>映射服务</h1><p>创建、编辑和运行局域网服务的动态公网映射。</p></div><span class="count-chip">{{ services.length }}</span></header>
+    <header class="page-heading"><div><p class="eyebrow">SERVICES</p><h1>映射服务</h1><p>通过公网映射或 Cloudflare Tunnel 发布局域网服务。</p></div><span class="count-chip">{{ services.length }}</span></header>
     <p v-if="error" class="global-error">{{ error }}</p>
-    <section v-if="connections.length === 0" class="prerequisite-callout"><div><p class="eyebrow">OPTIONAL PREREQUISITE</p><strong>要发布 Cloudflare Redirect，请先配置连接</strong><p>只做公网映射可以直接继续；需要自动 DNS 和跳转规则时，请先完成最小权限 Token 配置。</p></div><RouterLink class="button secondary" to="/cloudflare#token-setup">先配置 Cloudflare</RouterLink></section>
+    <section v-if="connections.length === 0" class="prerequisite-callout"><div><p class="eyebrow">OPTIONAL PREREQUISITE</p><strong>通过 Cloudflare 发布，请先配置连接</strong><p>公网映射和 Quick Tunnel 可以直接使用；需要自有域名、私网或 Access 时，请先完成最小权限 Token 配置。</p></div><RouterLink class="button secondary" to="/cloudflare#token-setup">先配置 Cloudflare</RouterLink></section>
     <section class="panel services-panel">
       <div v-if="services.length" class="service-list">
         <div v-for="service in services" :key="service.id" class="service-block">
           <article class="service-row" :data-editing="editingServiceId === service.id">
-            <div class="service-signal"><i :data-active="['healthy', 'mapped', 'gateway_mapped', 'discovering'].includes(service.status)" /></div>
+            <div class="service-signal"><i :data-active="['healthy', 'mapped', 'gateway_mapped', 'discovering', 'tunnel_running', 'tunnel_starting'].includes(service.status)" /></div>
             <div class="service-main">
               <div class="service-title"><strong>{{ service.name }}</strong><StatusBadge :status="service.status" /></div>
-              <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ formatEndpoint(service.publicIp, service.publicPort) }}</p>
-              <small>路由器放行：{{ gatewayModeLabel(service.gatewayMode) }}<template v-if="service.gatewayAddress"> · {{ service.gatewayAddress }}</template></small>
-              <small v-if="service.entryHostname">{{ service.redirectStatus }} · https://{{ service.entryHostname }}</small>
+              <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ usesConnector(service.publishMode) ? modeLabels[service.publishMode] : formatEndpoint(service.publicIp, service.publicPort) }}</p>
+              <small v-if="!usesConnector(service.publishMode)">路由器放行：{{ gatewayModeLabel(service.gatewayMode) }}<template v-if="service.gatewayAddress"> · {{ service.gatewayAddress }}</template></small>
+              <small>{{ modeLabels[service.publishMode] }}<template v-if="service.publishMode === 'redirect'"> · {{ service.redirectStatus }}</template></small>
+              <small v-if="serviceURL(service)"><a :href="serviceURL(service)" target="_blank" rel="noreferrer">{{ serviceURL(service) }}</a></small>
+              <small v-else-if="service.entryHostname">{{ service.entryHostname }}<template v-if="service.publishMode === 'spectrum'">:{{ service.edgePort }}</template></small>
+              <small v-if="service.publishMode === 'tunnel'">进程运行不代表已连接云端，请在 Cloudflare Dashboard 核对 Tunnel 状态。</small>
+              <small v-if="service.publishMode === 'tunnel' && !['http', 'https'].includes(service.tunnelProtocol || 'http')">客户端：cloudflared access {{ service.tunnelProtocol === 'ssh' ? 'ssh' : 'tcp' }} --hostname {{ service.entryHostname }}<template v-if="service.tunnelProtocol !== 'ssh'"> --url localhost:{{ service.targetPort }}</template></small>
+              <small v-if="service.publishMode === 'quick'">临时网址重启会变化；获得网址不代表已完成外网连通性验证。</small>
+              <small v-if="service.publishMode === 'warp'">私网路由 {{ service.privateNetwork }} · 使用已注册的 Cloudflare One 客户端访问目标 IP；请核对 Split Tunnels 和 Gateway 策略。</small>
               <small v-if="service.lastError" class="error-text">{{ service.lastError }}</small>
             </div>
             <div class="service-actions">
               <button v-if="!service.enabled" class="button small primary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'start')">启动</button>
               <button v-else class="button small secondary" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'stop')">停止</button>
               <button class="text-button" type="button" :disabled="busyService === service.id" @click="beginEdit(service)">编辑</button>
-              <button class="text-button" type="button" :disabled="diagnosingService === service.id" @click="diagnose(service)">{{ diagnosingService === service.id ? '检测中…' : 'STUN 检测' }}</button>
-              <button v-if="service.publishMode === 'redirect' && service.publicIp" class="text-button" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'sync')">同步 CF</button>
+              <button v-if="!usesConnector(service.publishMode)" class="text-button" type="button" :disabled="diagnosingService === service.id" @click="diagnose(service)">{{ diagnosingService === service.id ? '检测中…' : 'STUN 检测' }}</button>
+              <button v-if="usesCloudflareAccount(service.publishMode) && (usesConnector(service.publishMode) || (service.enabled && service.publicIp))" class="text-button" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'sync')">同步 CF</button>
+              <button v-if="usesCloudflareAccount(service.publishMode) && !service.enabled" class="text-button" type="button" :disabled="busyService === service.id" @click="serviceAction(service, 'cleanup')">清理云端发布</button>
               <button class="text-button danger" type="button" :disabled="service.enabled || busyService === service.id" @click="serviceAction(service, 'delete')">删除</button>
             </div>
           </article>
