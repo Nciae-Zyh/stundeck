@@ -34,6 +34,20 @@ RUN set -eu; \
     echo "${checksum}  /natmap" | sha256sum -c -; \
     chmod 0755 /natmap
 
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS cloudflared
+ARG TARGETARCH
+ARG CLOUDFLARED_VERSION=2026.9.1
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) checksum="03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc" ;; \
+      arm64) checksum="3d97437c71848bd8df68041e12436b484a661d95073ea1937f01a845ce88faa3" ;; \
+      *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${TARGETARCH}" -o /cloudflared; \
+    echo "${checksum}  /cloudflared" | sha256sum -c -; \
+    chmod 0755 /cloudflared
+
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
     groupadd --system --gid 10001 stundeck && \
@@ -43,8 +57,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=backend /out/stundeck /usr/local/bin/stundeck
 COPY --from=backend /out/stundeck-notify /usr/local/bin/stundeck-notify
 COPY --from=natmap /natmap /usr/local/bin/natmap
+COPY --from=cloudflared /cloudflared /usr/local/bin/cloudflared
 COPY LICENSE /usr/share/licenses/stundeck/LICENSE
 COPY third_party/NATMap-LICENSE /usr/share/licenses/natmap/LICENSE
+COPY third_party/cloudflared-LICENSE /usr/share/licenses/cloudflared/LICENSE
 
 ENV STUNDECK_LISTEN=0.0.0.0:8080 \
     STUNDECK_DATA_DIR=/var/lib/stundeck \

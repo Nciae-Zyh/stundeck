@@ -1,6 +1,7 @@
-import type { CloudflareConnection, Service } from './types'
+import type { CloudflareConnection, Service, PublishMode, TunnelProtocol } from './types'
 
 export interface ServiceDraft {
+	privateNetwork: string
   name: string
   targetHost: string
   targetPort: number
@@ -9,7 +10,9 @@ export interface ServiceDraft {
   gatewayMode: 'none' | 'upnp' | 'natpmp'
   gatewayAddress: string
   scheme: 'http' | 'https'
-  publishMode: 'direct' | 'redirect'
+  publishMode: PublishMode
+  tunnelProtocol: TunnelProtocol
+  edgePort: number
   cloudflareConnectionId: string
   entryHostname: string
   originHostname: string
@@ -21,6 +24,7 @@ export interface ServiceDraft {
 
 export function createServiceDraft(connections: CloudflareConnection[] = []): ServiceDraft {
   return {
+    privateNetwork: '',
     name: '',
     targetHost: '',
     targetPort: 80,
@@ -30,6 +34,8 @@ export function createServiceDraft(connections: CloudflareConnection[] = []): Se
     gatewayAddress: '',
     scheme: 'http',
     publishMode: 'direct',
+    tunnelProtocol: 'http',
+    edgePort: 443,
     cloudflareConnectionId: connections[0]?.id ?? '',
     entryHostname: '',
     originHostname: '',
@@ -42,6 +48,7 @@ export function createServiceDraft(connections: CloudflareConnection[] = []): Se
 
 export function serviceToDraft(service: Service): ServiceDraft {
   return {
+    privateNetwork: service.privateNetwork || '',
     name: service.name,
     targetHost: service.targetHost,
     targetPort: service.targetPort,
@@ -51,6 +58,8 @@ export function serviceToDraft(service: Service): ServiceDraft {
     gatewayAddress: service.gatewayAddress,
     scheme: service.scheme,
     publishMode: service.publishMode,
+    tunnelProtocol: service.tunnelProtocol || 'http',
+    edgePort: service.edgePort || 443,
     cloudflareConnectionId: service.cloudflareConnectionId,
     entryHostname: service.entryHostname,
     originHostname: service.originHostname,

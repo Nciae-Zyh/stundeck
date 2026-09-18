@@ -31,6 +31,10 @@ jobs:
         run: pnpm --dir web run build
       - name: Test backend
         run: go test -race ./...
+      - name: Test dashboard and Worker proxy
+        run: |
+          pnpm --dir web test
+          node --test internal/cloudflare/worker_proxy.test.mjs
       - name: Verify formatting
         run: test -z "$(git ls-files '*.go' | xargs gofmt -l)"
       - name: Check committed files for credential patterns

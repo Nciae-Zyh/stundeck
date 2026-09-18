@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	cf "github.com/Nciae-Zyh/stundeck/internal/cloudflare"
 	"github.com/Nciae-Zyh/stundeck/internal/engine"
 	"github.com/Nciae-Zyh/stundeck/internal/security"
 	"github.com/Nciae-Zyh/stundeck/internal/store"
@@ -20,18 +22,21 @@ import (
 )
 
 type Config struct {
-	Store         *store.Store
-	Cipher        *security.Cipher
-	Engine        *engine.Manager
-	Webhooks      *webhook.Dispatcher
-	Logger        *slog.Logger
-	SecureCookies bool
-	SessionTTL    time.Duration
-	InternalToken string
-	StartedAt     time.Time
+	CloudflareClient func(string) *cf.Client
+	Store            *store.Store
+	Cipher           *security.Cipher
+	Engine           *engine.Manager
+	Webhooks         *webhook.Dispatcher
+	Logger           *slog.Logger
+	SecureCookies    bool
+	SessionTTL       time.Duration
+	InternalToken    string
+	StartedAt        time.Time
 }
 
 type Server struct {
+	serviceMu     sync.Mutex
+	publisher     *cf.Publisher
 	store         *store.Store
 	cipher        *security.Cipher
 	engine        *engine.Manager
@@ -45,7 +50,13 @@ type Server struct {
 }
 
 func New(config Config) *Server {
+	publisher := cf.NewPublisher(config.Store, config.Cipher)
+	if config.CloudflareClient != nil {
+		publisher.NewClient = config.CloudflareClient
+	}
+	config.Engine.SetTunnelProvider(publisher.TunnelToken)
 	return &Server{
+		publisher:     publisher,
 		store:         config.Store,
 		cipher:        config.Cipher,
 		engine:        config.Engine,
@@ -81,6 +92,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/cloudflare/validate", s.protected(http.HandlerFunc(s.validateCloudflare)))
 	mux.Handle("POST /api/v1/cloudflare/connections", s.protected(http.HandlerFunc(s.saveCloudflareConnection)))
 	mux.Handle("DELETE /api/v1/cloudflare/connections/{id}", s.protected(http.HandlerFunc(s.deleteCloudflareConnection)))
+	mux.Handle("GET /api/v1/cloudflare/connections/{id}/inspect", s.protected(http.HandlerFunc(s.inspectCloudflareConnection)))
+	mux.Handle("POST /api/v1/cloudflare/inspect", s.protected(http.HandlerFunc(s.inspectCloudflareToken)))
+	mux.Handle("PUT /api/v1/cloudflare/connections/{id}/access", s.protected(http.HandlerFunc(s.saveCloudflareAccess)))
+	mux.Handle("DELETE /api/v1/cloudflare/connections/{id}/access", s.protected(http.HandlerFunc(s.deleteCloudflareAccess)))
+	mux.Handle("POST /api/v1/services/{id}/cleanup", s.protected(http.HandlerFunc(s.cleanupCloudflareService)))
 	mux.Handle("GET /api/v1/services", s.protected(http.HandlerFunc(s.services)))
 	mux.Handle("POST /api/v1/services", s.protected(http.HandlerFunc(s.createService)))
 	mux.Handle("PUT /api/v1/services/{id}", s.protected(http.HandlerFunc(s.updateService)))
@@ -117,6 +133,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"uptimeSeconds":   int(time.Since(s.startedAt).Seconds()),
 		"initialized":     initialized,
 		"engineAvailable": s.engine.Available(),
+		"tunnelAvailable": s.engine.TunnelAvailable(),
 	})
 }
 
@@ -133,6 +150,9 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/internal/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")

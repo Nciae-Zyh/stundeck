@@ -28,13 +28,15 @@ type Mapping struct {
 }
 
 type Config struct {
-	Binary          string
-	NotifyBinary    string
-	CallbackURL     string
-	CallbackToken   string
-	STUNServer      string
-	KeepAliveServer string
-	KeepAlive       time.Duration
+	CloudflaredBinary string
+	TunnelToken       func(context.Context, store.Service) (string, error)
+	Binary            string
+	NotifyBinary      string
+	CallbackURL       string
+	CallbackToken     string
+	STUNServer        string
+	KeepAliveServer   string
+	KeepAlive         time.Duration
 }
 
 type process struct {
@@ -68,6 +70,12 @@ func (m *Manager) Available() bool {
 }
 
 func (m *Manager) Start(ctx context.Context, service store.Service) error {
+	if service.PublishMode == "quick" {
+		return m.startQuickTunnel(ctx, service)
+	}
+	if service.UsesConnector() {
+		return m.startTunnel(ctx, service)
+	}
 	if err := validateTarget(ctx, service); err != nil {
 		return err
 	}
@@ -128,11 +136,14 @@ func (m *Manager) Stop(serviceID string) error {
 	if exists {
 		delete(m.processes, serviceID)
 	}
+	if exists {
+		running.cancel()
+	}
+	stateErr := m.store.SetServiceRuntime(context.Background(), serviceID, "stopped", "", false)
 	m.mu.Unlock()
 	if !exists {
-		return m.store.SetServiceRuntime(context.Background(), serviceID, "stopped", "", false)
+		return stateErr
 	}
-	running.cancel()
 	_ = running.cmd.Process.Signal(os.Interrupt)
 	if running.gateway != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
@@ -141,7 +152,7 @@ func (m *Manager) Stop(serviceID string) error {
 			m.logger.Warn("remove gateway mapping", "service_id", serviceID, "error", err)
 		}
 	}
-	return m.store.SetServiceRuntime(context.Background(), serviceID, "stopped", "", false)
+	return stateErr
 }
 
 func (m *Manager) StopAll() {
@@ -173,24 +184,25 @@ func (m *Manager) wait(serviceID string, ctx context.Context, cmd *exec.Cmd) {
 	err := cmd.Wait()
 	m.mu.Lock()
 	running, exists := m.processes[serviceID]
-	if exists && running.cmd == cmd {
-		delete(m.processes, serviceID)
+	if !exists || running.cmd != cmd {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.processes, serviceID)
+	if ctx.Err() == nil {
+		message := "service connector exited"
+		if err != nil {
+			message = err.Error()
+		}
+		m.logger.Error("service connector exited", "service_id", serviceID, "error", message)
+		_ = m.store.SetServiceRuntime(context.Background(), serviceID, "error", message, true)
 	}
 	m.mu.Unlock()
-	if exists && running.gateway != nil {
+	if running.gateway != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
 		_ = removeGatewayMapping(cleanupCtx, *running.gateway)
 		cancel()
 	}
-	if ctx.Err() != nil {
-		return
-	}
-	message := "natmap exited"
-	if err != nil {
-		message = err.Error()
-	}
-	m.logger.Error("natmap process exited", "service_id", serviceID, "error", message)
-	_ = m.store.SetServiceRuntime(context.Background(), serviceID, "error", message, true)
 }
 
 func (m *Manager) logPipe(serviceID, stream string, reader io.Reader) {

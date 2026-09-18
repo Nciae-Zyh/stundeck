@@ -6,6 +6,8 @@ const labels: Record<string, string> = {
   healthy: '已同步',
   mapped: '已映射',
   running: '运行中',
+  tunnel_running: 'Tunnel 进程运行中',
+  tunnel_starting: '获取临时地址',
   discovering: '探测中',
   syncing: '同步中',
   sync_error: '同步失败',
@@ -15,9 +17,9 @@ const labels: Record<string, string> = {
   error: '运行错误',
 }
 const tone = computed(() => {
-  if (['healthy', 'mapped', 'running', 'gateway_mapped'].includes(props.status)) return 'ok'
+  if (['healthy', 'mapped', 'running', 'tunnel_running', 'gateway_mapped'].includes(props.status)) return 'ok'
   if (['error', 'sync_error', 'gateway_error'].includes(props.status)) return 'error'
-  if (['discovering', 'syncing'].includes(props.status)) return 'working'
+  if (['discovering', 'syncing', 'tunnel_starting'].includes(props.status)) return 'working'
   return 'idle'
 })
 const label = computed(() => labels[props.status] ?? props.status)

@@ -42,9 +42,10 @@ type Rule struct {
 }
 
 type SyncResult struct {
-	RulesetID string `json:"rulesetId"`
-	RuleID    string `json:"ruleId"`
-	TargetURL string `json:"targetUrl"`
+	ResourceID string `json:"resourceId,omitempty"`
+	RulesetID  string `json:"rulesetId"`
+	RuleID     string `json:"ruleId"`
+	TargetURL  string `json:"targetUrl"`
 }
 
 func (c *Client) ReconcileService(ctx context.Context, zoneID string, service store.Service) (SyncResult, error) {
@@ -145,37 +146,44 @@ func (c *Client) ensureDNSRecord(ctx context.Context, zoneID, hostname, publicIP
 	if strings.Contains(publicIP, ":") {
 		recordType = "AAAA"
 	}
-	var records []DNSRecord
-	path := "/zones/" + escaped(zoneID) + "/dns_records?name=" + escaped(hostname)
-	if err := c.do(ctx, http.MethodGet, path, nil, &records); err != nil {
+	return c.ensureRecord(ctx, zoneID, hostname, recordType, publicIP, proxied, serviceID)
+}
+
+func (c *Client) ownedDNS(ctx context.Context, zoneID, hostname, serviceID string) ([]DNSRecord, error) {
+	records, err := c.DNSRecords(ctx, zoneID, hostname)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > 1 {
+		return nil, errors.New("hostname has multiple DNS records; resolve the conflict before publishing")
+	}
+	for _, record := range records {
+		if record.Comment != "managed-by=stundeck:"+serviceID {
+			return nil, errors.New("hostname already exists and is not managed by this StunDeck service")
+		}
+	}
+	return records, nil
+}
+
+func (c *Client) ensureRecord(ctx context.Context, zoneID, hostname, recordType, content string, proxied bool, serviceID string) error {
+	records, err := c.ownedDNS(ctx, zoneID, hostname, serviceID)
+	if err != nil {
 		return err
 	}
-	marker := "managed-by=stundeck:" + serviceID
-	payload := map[string]any{
-		"type":    recordType,
-		"name":    hostname,
-		"content": publicIP,
-		"proxied": proxied,
-		"ttl":     1,
-		"comment": marker,
+	payload := map[string]any{"type": recordType, "name": hostname, "content": content, "proxied": proxied, "ttl": 1, "comment": "managed-by=stundeck:" + serviceID}
+	path := "/zones/" + escaped(zoneID) + "/dns_records"
+	method := http.MethodPost
+	if len(records) > 0 {
+		if records[0].Type == recordType && records[0].Content == content && records[0].Proxied == proxied {
+			return nil
+		}
+		if records[0].Type != recordType {
+			return fmt.Errorf("hostname already has an incompatible %s record; clean up the old publishing configuration first", records[0].Type)
+		}
+		path += "/" + escaped(records[0].ID)
+		method = http.MethodPatch
 	}
-	if len(records) == 0 {
-		var created DNSRecord
-		return c.do(ctx, http.MethodPost, "/zones/"+escaped(zoneID)+"/dns_records", payload, &created)
-	}
-	record := records[0]
-	if record.Type != recordType {
-		return fmt.Errorf("hostname already has an incompatible %s record", record.Type)
-	}
-	if record.Comment != marker {
-		return errors.New("hostname already exists and is not managed by StunDeck")
-	}
-	var updated DNSRecord
-	return c.do(ctx, http.MethodPatch,
-		"/zones/"+escaped(zoneID)+"/dns_records/"+escaped(record.ID),
-		payload,
-		&updated,
-	)
+	return c.do(ctx, method, path, payload, nil)
 }
 
 func (c *Client) redirectRuleset(ctx context.Context, zoneID string) (Ruleset, error) {
@@ -214,21 +222,22 @@ func (c *Client) createRedirectRuleset(ctx context.Context, zoneID string, rule 
 }
 
 func (c *Client) createRule(ctx context.Context, zoneID, rulesetID string, rule Rule) (Rule, error) {
-	var created Rule
-	err := c.do(ctx, http.MethodPost,
-		"/zones/"+escaped(zoneID)+"/rulesets/"+escaped(rulesetID)+"/rules",
-		rule,
-		&created,
-	)
-	return created, err
+	return c.writeRule(ctx, http.MethodPost, "/zones/"+escaped(zoneID)+"/rulesets/"+escaped(rulesetID)+"/rules", rule)
 }
 
 func (c *Client) updateRule(ctx context.Context, zoneID, rulesetID, ruleID string, rule Rule) (Rule, error) {
-	var updated Rule
-	err := c.do(ctx, http.MethodPatch,
-		"/zones/"+escaped(zoneID)+"/rulesets/"+escaped(rulesetID)+"/rules/"+escaped(ruleID),
-		rule,
-		&updated,
-	)
-	return updated, err
+	return c.writeRule(ctx, http.MethodPatch, "/zones/"+escaped(zoneID)+"/rulesets/"+escaped(rulesetID)+"/rules/"+escaped(ruleID), rule)
+}
+
+func (c *Client) writeRule(ctx context.Context, method, path string, rule Rule) (Rule, error) {
+	var ruleset Ruleset
+	if err := c.do(ctx, method, path, rule, &ruleset); err != nil {
+		return Rule{}, err
+	}
+	for _, existing := range ruleset.Rules {
+		if existing.Ref == rule.Ref {
+			return existing, nil
+		}
+	}
+	return Rule{}, errors.New("Cloudflare response did not contain the managed redirect rule")
 }

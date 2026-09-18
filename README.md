@@ -1,6 +1,6 @@
 # StunDeck
 
-StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责监管 NATMap、把动态公网映射转发到局域网服务，并在映射变化后自动同步 Cloudflare Redirect Rules 和签名 Webhook。
+StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责监管 NATMap 与 cloudflared，通过公网映射或 Cloudflare Tunnel 发布局域网服务，并管理 Cloudflare DNS、Redirect、HTTP 代理、Spectrum 和按域名配置的 Access。
 
 > STUN 不是中继服务，也不能穿透所有 NAT。StunDeck 只自动化可行环境中的探测、保活、转发与发布，不会把对称型 NAT 或受限 CGNAT 变成公网入口。
 
@@ -11,8 +11,9 @@ StunDeck 是一个本地优先、开源的 STUN 映射控制面板。它负责�
 - 首页网络诊断：按 RFC 5780 展示 NAT 映射类型，并分别检查 TCP/UDP STUN 支持。
 - 服务级 STUN 诊断：代理环境、TCP/UDP Binding、保活出口、目标协议、网关能力与映射进程。
 - 可选的 UPnP / NAT-PMP 网关端口映射，适配 StunDeck 运行在普通局域网主机的场景。
-- Cloudflare API Token 验证与 Zone 选择。
-- Cloudflare DNS 与 Single Redirect 单规则同步。
+- Cloudflare API Token 验证、Zone 选择、按功能权限检测与域名清单。
+- Cloudflare DNS、HTTP 代理、Single Redirect、Tunnel、Quick Tunnel、WARP 私网、Workers 与 Spectrum 发布。
+- 按域名配置 Cloudflare Access 邮箱允许策略，并回读确认。
 - 仅支持明确记录在 Single Redirect 文档中的 `302` 和 `307`。
 - 映射变化事件、持久化历史与自动同步。
 - HMAC-SHA256 签名 Webhook、重试与 SSRF 防护。
@@ -79,7 +80,12 @@ make fpk
 
 - Zone > Zone > Read
 - Zone > DNS > Edit，仅在让 StunDeck 管理 DNS 时需要
-- Zone > Single Redirect > Edit
+- Zone > Single Redirect > Edit（Redirect）
+- Account > Cloudflare Tunnel > Edit（Tunnel / WARP；限制到 Zone 所属账户）
+- Account > Cloudflare One Networks > Edit（私网路由也接受 Tunnel Edit）
+- Account > Workers Scripts > Edit + Zone > Workers Routes > Edit（Workers 代理，另需 DNS Edit）
+- Access: Apps and Policies > Edit（Access；所选账户或 Zone）
+- Zone > Zone Settings > Edit（Spectrum；另需套餐授权）
 - Zone Resources > Include > Specific zone
 
 详细说明见 [Cloudflare 配置](docs/cloudflare.md)。
@@ -133,4 +139,4 @@ StunDeck 使用 Apache-2.0 许可证。Docker 镜像包含 MIT 许可的 [NATMap
 
 ## Development status
 
-The current release is an MVP. It is suitable for controlled self-hosted testing, but external reachability must still be verified from a different network. Multi-node agents, Cloudflare Tunnel fallback and Worker-based 303 responses are planned follow-up work.
+The current release is an MVP. It is suitable for controlled self-hosted testing, but external reachability must still be verified from a different network. Named Tunnel, Quick Tunnel, WARP private routes and a fixed-origin Workers HTTPS proxy are available as explicit publishing modes. Multi-node agents and automatic fallback between modes remain future work.

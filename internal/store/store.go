@@ -72,6 +72,15 @@ CREATE TABLE IF NOT EXISTS cloudflare_connections (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cloudflare_resources (
+  connection_id TEXT NOT NULL REFERENCES cloudflare_connections(id),
+  owner_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  remote_id TEXT NOT NULL,
+  hostname TEXT NOT NULL,
+  PRIMARY KEY (connection_id, owner_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS services (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -149,6 +158,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		return fmt.Errorf("migrate database: %w", err)
 	}
 	if err := s.ensureUserSecurityColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureCloudflareColumns(ctx); err != nil {
 		return err
 	}
 	if err := s.ensureServiceGatewayColumns(ctx); err != nil {

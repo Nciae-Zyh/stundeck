@@ -64,13 +64,13 @@ FROM cloudflare_connections WHERE id = ?`, id))
 func (s *Store) DeleteCloudflareConnection(ctx context.Context, id string) error {
 	var count int
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM services WHERE cloudflare_connection_id = ?",
-		id,
+		"SELECT (SELECT COUNT(*) FROM services WHERE cloudflare_connection_id = ?) + (SELECT COUNT(*) FROM cloudflare_resources WHERE connection_id = ?)",
+		id, id,
 	).Scan(&count); err != nil {
 		return fmt.Errorf("check cloudflare connection usage: %w", err)
 	}
 	if count > 0 {
-		return errors.New("cloudflare connection is still used by a service")
+		return errors.New("cloudflare connection is still used by a service or managed Cloudflare resource")
 	}
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM cloudflare_connections WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete cloudflare connection: %w", err)

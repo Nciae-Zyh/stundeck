@@ -18,6 +18,9 @@ import (
 var hostnamePattern = regexp.MustCompile(`(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type serviceRequest struct {
+	PrivateNetwork         string `json:"privateNetwork"`
+	TunnelProtocol         string `json:"tunnelProtocol"`
+	EdgePort               int    `json:"edgePort"`
 	Name                   string `json:"name"`
 	TargetHost             string `json:"targetHost"`
 	TargetPort             int    `json:"targetPort"`
@@ -46,6 +49,8 @@ func (s *Server) services(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	var input serviceRequest
 	if !decodeJSON(w, r, &input) {
 		return
@@ -73,6 +78,8 @@ func (s *Server) createService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	id, ok := requireID(w, r)
 	if !ok {
 		return
@@ -95,6 +102,17 @@ func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "service_invalid", err.Error())
 		return
 	}
+	resources, resourceErr := s.store.CloudflareResources(r.Context(), existing.CloudflareConnectionID)
+	if resourceErr != nil {
+		mapStoreError(w, resourceErr)
+		return
+	}
+	for _, resource := range resources {
+		if resource.OwnerID == existing.ID && (existing.CloudflareConnectionID != service.CloudflareConnectionID || existing.EntryHostname != service.EntryHostname || existing.OriginHostname != service.OriginHostname || existing.PublishMode != service.PublishMode || existing.ManageDNS != service.ManageDNS || existing.PrivateNetwork != service.PrivateNetwork) {
+			writeError(w, 409, "cleanup_required", "更换发布方式、连接或域名前，请先清理此服务的云端发布")
+			return
+		}
+	}
 	service.ID = existing.ID
 	service.CreatedAt = existing.CreatedAt
 	service.UpdatedAt = time.Now()
@@ -103,6 +121,7 @@ func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
 	service.PublicIP = existing.PublicIP
 	service.PublicPort = existing.PublicPort
 	service.MappingChangedAt = existing.MappingChangedAt
+	service.RuntimeURL = existing.RuntimeURL
 	if err := s.store.UpdateService(r.Context(), service); err != nil {
 		mapStoreError(w, err)
 		return
@@ -111,6 +130,8 @@ func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	id, ok := requireID(w, r)
 	if !ok {
 		return
@@ -118,6 +139,22 @@ func (s *Server) deleteService(w http.ResponseWriter, r *http.Request) {
 	if s.engine.Running(id) {
 		writeError(w, http.StatusConflict, "service_running", "Stop the service before deleting it")
 		return
+	}
+	existing, err := s.store.Service(r.Context(), id)
+	if err != nil {
+		mapStoreError(w, err)
+		return
+	}
+	resources, err := s.store.CloudflareResources(r.Context(), existing.CloudflareConnectionID)
+	if err != nil {
+		mapStoreError(w, err)
+		return
+	}
+	for _, resource := range resources {
+		if resource.OwnerID == id {
+			writeError(w, 409, "cleanup_required", "请先清理此服务的云端发布，再删除服务；Access 单独管理")
+			return
+		}
 	}
 	if err := s.store.DeleteService(r.Context(), id); err != nil {
 		mapStoreError(w, err)
@@ -127,6 +164,8 @@ func (s *Server) deleteService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	id, ok := requireID(w, r)
 	if !ok {
 		return
@@ -136,18 +175,20 @@ func (s *Server) startService(w http.ResponseWriter, r *http.Request) {
 		mapStoreError(w, err)
 		return
 	}
-	if err := s.engine.Start(context.Background(), service); err != nil {
+	if err := s.engine.Start(r.Context(), service); err != nil {
 		_ = s.store.SetServiceRuntime(r.Context(), service.ID, "error", err.Error(), false)
 		s.addEvent(r.Context(), store.Event{ServiceID: service.ID, Type: "engine.start_failed", Level: "error", Message: err.Error()})
 		writeError(w, http.StatusBadRequest, "engine_start_failed", err.Error())
 		return
 	}
-	s.addEvent(r.Context(), store.Event{ServiceID: service.ID, Type: "engine.started", Level: "info", Message: "NAT mapping discovery started"})
+	s.addEvent(r.Context(), store.Event{ServiceID: service.ID, Type: "engine.started", Level: "info", Message: "Service connector started"})
 	updated, _ := s.store.Service(r.Context(), id)
 	writeJSON(w, http.StatusOK, map[string]any{"service": updated})
 }
 
 func (s *Server) stopService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	id, ok := requireID(w, r)
 	if !ok {
 		return
@@ -156,12 +197,14 @@ func (s *Server) stopService(w http.ResponseWriter, r *http.Request) {
 		mapStoreError(w, err)
 		return
 	}
-	s.addEvent(r.Context(), store.Event{ServiceID: id, Type: "engine.stopped", Level: "info", Message: "NAT mapping discovery stopped"})
+	s.addEvent(r.Context(), store.Event{ServiceID: id, Type: "engine.stopped", Level: "info", Message: "Service connector stopped"})
 	updated, _ := s.store.Service(r.Context(), id)
 	writeJSON(w, http.StatusOK, map[string]any{"service": updated})
 }
 
 func (s *Server) syncService(w http.ResponseWriter, r *http.Request) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	id, ok := requireID(w, r)
 	if !ok {
 		return
@@ -171,7 +214,9 @@ func (s *Server) syncService(w http.ResponseWriter, r *http.Request) {
 		mapStoreError(w, err)
 		return
 	}
-	result, err := s.syncCloudflare(r.Context(), service)
+	ctx, cancel := context.WithTimeout(r.Context(), 50*time.Second)
+	defer cancel()
+	result, err := s.syncCloudflare(ctx, service)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "cloudflare_sync_failed", err.Error())
 		return
@@ -187,6 +232,10 @@ func (s *Server) diagnoseService(w http.ResponseWriter, r *http.Request) {
 	service, err := s.store.Service(r.Context(), id)
 	if err != nil {
 		mapStoreError(w, err)
+		return
+	}
+	if service.UsesConnector() {
+		writeError(w, 400, "not_stun_service", "Tunnel 不依赖 STUN；请在 Cloudflare 页面查看权限和连接状态")
 		return
 	}
 	report := s.engine.Diagnose(r.Context(), service)
@@ -215,8 +264,14 @@ func (s *Server) natmapEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMapping(mapping engine.Mapping) {
+	s.serviceMu.Lock()
+	defer s.serviceMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
+	current, err := s.store.Service(ctx, mapping.ServiceID)
+	if err != nil || !current.Enabled || current.UsesConnector() || !s.engine.Running(current.ID) {
+		return
+	}
 	changed, err := s.store.SetServiceMapping(ctx, mapping.ServiceID, mapping.PublicIP, mapping.PublicPort)
 	if err != nil {
 		s.logger.Error("save nat mapping", "service_id", mapping.ServiceID, "error", err)
@@ -251,7 +306,7 @@ func (s *Server) handleMapping(mapping engine.Mapping) {
 		})
 		_ = s.store.SetServiceRuntime(ctx, service.ID, "gateway_mapped", "", true)
 	}
-	if service.PublishMode != "redirect" {
+	if service.PublishMode == "direct" || service.UsesConnector() {
 		return
 	}
 	if _, err := s.syncCloudflare(ctx, service); err != nil {
@@ -261,34 +316,32 @@ func (s *Server) handleMapping(mapping engine.Mapping) {
 }
 
 func (s *Server) syncCloudflare(ctx context.Context, service store.Service) (cf.SyncResult, error) {
-	if service.PublishMode != "redirect" {
-		return cf.SyncResult{}, errors.New("service is not configured for Cloudflare redirect publishing")
+	if !service.UsesCloudflareAccount() {
+		return cf.SyncResult{}, errors.New("此模式无需同步 Cloudflare 账户")
 	}
-	connection, err := s.store.CloudflareConnection(ctx, service.CloudflareConnectionID)
+	if !service.UsesConnector() && !service.Enabled {
+		return cf.SyncResult{}, errors.New("请先启动服务并取得公网映射，再同步 Cloudflare")
+	}
+	result, err := s.publisher.Sync(ctx, service)
 	if err != nil {
-		return cf.SyncResult{}, errors.New("Cloudflare connection is missing")
+		return result, err
 	}
-	token, err := s.cipher.Decrypt(connection.TokenCiphertext)
-	if err != nil {
-		return cf.SyncResult{}, errors.New("Cloudflare token could not be decrypted")
+	status := service.Status
+	if !service.UsesConnector() && service.Enabled {
+		status = "healthy"
 	}
-	result, err := cf.New(token).ReconcileService(ctx, connection.ZoneID, service)
-	if err != nil {
-		return cf.SyncResult{}, err
+	if err = s.store.SetServiceRuntime(ctx, service.ID, status, "", service.Enabled); err != nil {
+		return result, err
 	}
-	_ = s.store.SetServiceRuntime(ctx, service.ID, "healthy", "", true)
-	s.addEvent(ctx, store.Event{
-		ServiceID: service.ID,
-		Type:      "cloudflare.synced",
-		Level:     "info",
-		Message:   "Cloudflare redirect synchronized",
-		Payload:   map[string]any{"targetUrl": result.TargetURL, "ruleId": result.RuleID},
-	})
+	s.addEvent(ctx, store.Event{ServiceID: service.ID, Type: "cloudflare.synced", Level: "info", Message: "Cloudflare " + service.PublishMode + " synchronized", Payload: map[string]any{"targetUrl": result.TargetURL}})
 	return result, nil
 }
 
 func (s *Server) serviceFromRequest(ctx context.Context, input serviceRequest) (store.Service, error) {
 	service := store.Service{
+		PrivateNetwork:         strings.TrimSpace(input.PrivateNetwork),
+		TunnelProtocol:         strings.ToLower(strings.TrimSpace(input.TunnelProtocol)),
+		EdgePort:               input.EdgePort,
 		Name:                   strings.TrimSpace(input.Name),
 		TargetHost:             strings.TrimSpace(input.TargetHost),
 		TargetPort:             input.TargetPort,
@@ -339,8 +392,71 @@ func (s *Server) serviceFromRequest(ctx context.Context, input serviceRequest) (
 	if service.PublishMode == "" {
 		service.PublishMode = "direct"
 	}
-	if service.PublishMode != "direct" && service.PublishMode != "redirect" {
-		return store.Service{}, errors.New("publish mode must be direct or redirect")
+	switch service.PublishMode {
+	case "direct", "redirect", "dns", "proxy", "tunnel", "spectrum", "quick", "warp", "workers":
+	default:
+		return store.Service{}, errors.New("unsupported Cloudflare publishing mode")
+	}
+	if service.TunnelProtocol == "" {
+		service.TunnelProtocol = "http"
+	}
+	if service.PublishMode == "tunnel" || service.PublishMode == "quick" {
+		if service.Protocol != "tcp" || !cf.TunnelProtocolAllowed(service.TunnelProtocol) {
+			return store.Service{}, errors.New("Tunnel supports HTTP, HTTPS, TCP, SSH and RDP, not public UDP")
+		}
+		service.BindPort, service.GatewayMode, service.GatewayAddress = 0, "none", ""
+	}
+	if service.PublishMode == "quick" && service.TunnelProtocol != "http" && service.TunnelProtocol != "https" {
+		return store.Service{}, errors.New("Quick Tunnel only supports HTTP / HTTPS")
+	}
+	if service.PublishMode == "warp" {
+		network, err := cf.PrivateNetwork(service.TargetHost, service.PrivateNetwork)
+		if err != nil {
+			return store.Service{}, err
+		}
+		service.PrivateNetwork = network.String()
+		service.BindPort, service.GatewayMode, service.GatewayAddress = 0, "none", ""
+	} else {
+		service.PrivateNetwork = ""
+	}
+	if !service.UsesCloudflareAccount() || service.PublishMode == "warp" {
+		service.EntryHostname, service.OriginHostname, service.ManageDNS = "", "", false
+		if !service.UsesCloudflareAccount() {
+			service.CloudflareConnectionID = ""
+		}
+	}
+	if service.PublishMode == "spectrum" && (service.EdgePort < 1 || service.EdgePort > 65535) {
+		return store.Service{}, errors.New("Spectrum requires an edge port between 1 and 65535")
+	}
+	if (service.PublishMode == "proxy" || service.PublishMode == "workers") && service.Protocol != "tcp" {
+		return store.Service{}, errors.New("Cloudflare HTTP proxy requires a TCP web service")
+	}
+	if service.PublishMode == "workers" {
+		if !validHostname(service.OriginHostname) || net.ParseIP(service.OriginHostname) != nil {
+			return store.Service{}, errors.New("Workers requires a separate origin hostname")
+		}
+		service.ManageDNS = true
+	}
+	if service.UsesCloudflareAccount() {
+		if service.PublishMode != "warp" && (!validHostname(service.EntryHostname) || net.ParseIP(service.EntryHostname) != nil) {
+			return store.Service{}, errors.New("entry hostname is invalid")
+		}
+		connection, err := s.store.CloudflareConnection(ctx, service.CloudflareConnectionID)
+		if err != nil {
+			return store.Service{}, errors.New("Cloudflare connection does not exist")
+		}
+		if service.PublishMode != "warp" && !cf.HostInZone(service.EntryHostname, connection.ZoneName) {
+			return store.Service{}, errors.New("entry hostname must belong to the selected Cloudflare zone")
+		}
+		if service.OriginHostname != "" && service.ManageDNS && !cf.HostInZone(service.OriginHostname, connection.ZoneName) {
+			return store.Service{}, errors.New("managed origin hostname must belong to the selected Cloudflare zone")
+		}
+		if service.EntryHostname != "" && service.EntryHostname == service.OriginHostname {
+			return store.Service{}, errors.New("entry and origin hostnames must differ")
+		}
+	}
+	if service.PublishMode == "dns" || service.PublishMode == "proxy" || service.PublishMode == "tunnel" {
+		service.ManageDNS = true
 	}
 	if service.RedirectStatus == 0 {
 		service.RedirectStatus = 302

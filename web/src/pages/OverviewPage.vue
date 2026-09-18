@@ -85,7 +85,7 @@ onMounted(diagnoseNetwork)
       <div class="setup-steps">
         <RouterLink to="/cloudflare#token-setup" :data-ready="connections.length > 0"><small>01</small><div><strong>配置 Cloudflare</strong><p>{{ connections.length ? `已连接 ${connections.length} 个 Zone` : '创建最小权限 Token 并选择 Zone' }}</p></div><span>{{ connections.length ? '已完成' : '去配置' }}</span></RouterLink>
         <button type="button" :data-ready="network?.udpStun" @click="diagnoseNetwork"><small>02</small><div><strong>检查 NAT / STUN</strong><p>{{ network ? natType.label : '自动检测 TCP 与 UDP 支持' }}</p></div><span>{{ network?.udpStun ? '已检测' : '检测' }}</span></button>
-        <RouterLink to="/services" :data-ready="services.length > 0"><small>03</small><div><strong>创建映射服务</strong><p>{{ services.length ? `已配置 ${services.length} 个服务` : '选择直连或 Cloudflare Redirect' }}</p></div><span>{{ services.length ? '管理' : '去创建' }}</span></RouterLink>
+        <RouterLink to="/services" :data-ready="services.length > 0"><small>03</small><div><strong>创建映射服务</strong><p>{{ services.length ? `已配置 ${services.length} 个服务` : '选择公网映射、代理或 Cloudflare Tunnel' }}</p></div><span>{{ services.length ? '管理' : '去创建' }}</span></RouterLink>
       </div>
     </section>
 
