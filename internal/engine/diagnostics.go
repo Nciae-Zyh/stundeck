@@ -89,7 +89,7 @@ func (m *Manager) Diagnose(ctx context.Context, service store.Service) Diagnosti
 			return checkTargetProtocol(checkCtx, service)
 		}},
 		{key: "stun_udp", label: "UDP STUN", category: "stun", run: func(checkCtx context.Context) (string, string) {
-			family, err := stunBinding(checkCtx, "udp", m.config.STUNServer)
+			family, err := stunBinding(checkCtx, "udp", m.config.UDPSTUNServer)
 			if err != nil {
 				status := "warn"
 				if service.Protocol == "udp" {
@@ -209,7 +209,7 @@ func (m *Manager) DiagnoseNetwork(ctx context.Context) NetworkDiagnosticReport {
 			return "pass", "NATMap 程序可执行"
 		}},
 		{key: "stun_udp", label: "UDP STUN", category: "stun", run: func(checkCtx context.Context) (string, string) {
-			result, err := discoverNATMapping(checkCtx, m.config.STUNServer)
+			result, err := discoverNATMapping(checkCtx, m.config.UDPSTUNServer)
 			if err != nil {
 				return "fail", "UDP STUN Binding 失败：" + conciseNetworkError(err)
 			}

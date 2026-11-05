@@ -62,12 +62,13 @@ Zone、DNS、Access 应用列表按分页完整读取，超出边界或读取失
 
 每个 Tunnel 服务使用独立的远程管理 Tunnel，名称为 `stundeck-<service-id>`。云端 ID 在创建成功后立即保存，配置失败后重试复用同一 ID。Ingress 仅含该服务 hostname 和最后一条 `http_status:404`，避免把未匹配域名转发到局域网。
 
-「启动」同步 Tunnel、绑定 `<tunnel-id>.cfargotunnel.com` 的 Proxied CNAME，然后运行 cloudflared。Connector token 仅在服务启动时获取，通过子进程 `TUNNEL_TOKEN` 环境变量传递，不进入命令行参数、事件日志或 HTTP 响应。HTTPS 本地目标保持证书验证。
+「启动」同步 Tunnel、绑定 `<tunnel-id>.cfargotunnel.com` 的 Proxied CNAME，然后运行 cloudflared。Connector token 只在启动或自动重试时获取，通过子进程 `TUNNEL_TOKEN` 环境变量传递，不进入命令行参数、事件日志或 HTTP 响应。HTTPS 本地目标保持证书验证。
 
 - Docker 镜像内置固定版本、校验 SHA-256 的 cloudflared，fnOS FPK 使用相同容器镜像。
 - 二进制部署需要另行安装官方 cloudflared，并保证在 PATH 中；或设置 `STUNDECK_CLOUDFLARED_BINARY`。
 - 容器中 `localhost` 指容器自身；访问宿主机或其他局域网服务时按部署网络填写地址。fnOS / host 网络部署保持原有行为。
-- 进程由应用生命周期管理，HTTP 请求结束不会停止它；停止服务终止本地 connector，应用重启会恢复已启用服务。
+- 启动不会先探测本地端口；源站稍后启动也可以继续使用同一个 Tunnel。进程异常退出或 Cloudflare 暂时不可用时，服务保持启用并按 1、2、4 秒递增、最多 30 秒的间隔自动重试；每次命名 Tunnel 重试都会重新获取 connector token。
+- 进程由应用生命周期管理，HTTP 请求结束不会停止它；停止服务会终止本地 connector 并取消后续重试，应用重启会恢复已启用服务。
 - 「Tunnel 进程运行中」表示本机进程仍在，不表示云端已连接或公网请求已经成功。需要在 Cloudflare 核对 Tunnel 状态并从外网验证。
 
 ## Quick Tunnel 临时分享

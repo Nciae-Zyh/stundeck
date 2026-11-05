@@ -35,6 +35,7 @@ type Config struct {
 	CallbackURL       string
 	CallbackToken     string
 	STUNServer        string
+	UDPSTUNServer     string
 	KeepAliveServer   string
 	KeepAlive         time.Duration
 }
@@ -47,20 +48,28 @@ type process struct {
 	gatewayGeneration uint64
 }
 
+type connectorRun struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	service store.Service
+}
+
 type Manager struct {
-	config    Config
-	store     *store.Store
-	logger    *slog.Logger
-	mu        sync.Mutex
-	processes map[string]*process
+	config     Config
+	store      *store.Store
+	logger     *slog.Logger
+	mu         sync.Mutex
+	processes  map[string]*process
+	connectors map[string]*connectorRun
 }
 
 func NewManager(config Config, database *store.Store, logger *slog.Logger) *Manager {
 	return &Manager{
-		config:    config,
-		store:     database,
-		logger:    logger,
-		processes: make(map[string]*process),
+		config:     config,
+		store:      database,
+		logger:     logger,
+		processes:  make(map[string]*process),
+		connectors: make(map[string]*connectorRun),
 	}
 }
 
@@ -133,11 +142,18 @@ func (m *Manager) Start(ctx context.Context, service store.Service) error {
 func (m *Manager) Stop(serviceID string) error {
 	m.mu.Lock()
 	running, exists := m.processes[serviceID]
+	connector, connectorExists := m.connectors[serviceID]
 	if exists {
 		delete(m.processes, serviceID)
 	}
+	if connectorExists {
+		delete(m.connectors, serviceID)
+	}
 	if exists {
 		running.cancel()
+	}
+	if connectorExists {
+		connector.cancel()
 	}
 	stateErr := m.store.SetServiceRuntime(context.Background(), serviceID, "stopped", "", false)
 	m.mu.Unlock()
@@ -158,11 +174,19 @@ func (m *Manager) Stop(serviceID string) error {
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	processes := make([]*process, 0, len(m.processes))
+	connectors := make([]*connectorRun, 0, len(m.connectors))
 	for _, running := range m.processes {
 		processes = append(processes, running)
 	}
 	m.processes = make(map[string]*process)
+	for _, connector := range m.connectors {
+		connectors = append(connectors, connector)
+	}
+	m.connectors = make(map[string]*connectorRun)
 	m.mu.Unlock()
+	for _, connector := range connectors {
+		connector.cancel()
+	}
 	for _, running := range processes {
 		running.cancel()
 		if running.gateway != nil {
@@ -176,8 +200,9 @@ func (m *Manager) StopAll() {
 func (m *Manager) Running(serviceID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, exists := m.processes[serviceID]
-	return exists
+	_, processExists := m.processes[serviceID]
+	_, connectorExists := m.connectors[serviceID]
+	return processExists || connectorExists
 }
 
 func (m *Manager) wait(serviceID string, ctx context.Context, cmd *exec.Cmd) {
@@ -214,11 +239,15 @@ func (m *Manager) logPipe(serviceID, stream string, reader io.Reader) {
 
 func BuildArgs(service store.Service, config Config, notifyBinary string) []string {
 	args := []string{"-4"}
+	stunServer := config.STUNServer
 	if service.Protocol == "udp" {
 		args = append(args, "-u")
+		if config.UDPSTUNServer != "" {
+			stunServer = config.UDPSTUNServer
+		}
 	}
 	args = append(args,
-		"-s", config.STUNServer,
+		"-s", stunServer,
 		"-b", strconv.Itoa(service.BindPort),
 		"-t", service.TargetHost,
 		"-p", strconv.Itoa(service.TargetPort),

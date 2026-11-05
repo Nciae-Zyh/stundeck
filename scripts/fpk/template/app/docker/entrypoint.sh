@@ -117,6 +117,7 @@ trap 'rm -f -- "${port_tmp:-}" "${env_tmp:-}"' EXIT HUP INT TERM
     printf 'STUNDECK_LISTEN=0.0.0.0:%s\n' "$port"
     printf 'STUNDECK_SECURE_COOKIES=%s\n' "$secure_cookies"
     printf 'STUNDECK_STUN_SERVER=turn.cloudflare.com:3478\n'
+    printf 'STUNDECK_UDP_STUN_SERVER=turn.cloudflare.com:53\n'
     printf 'STUNDECK_KEEPALIVE_SERVER=www.cloudflare.com:80\n'
     printf 'TZ=%s\n' "$timezone"
     printf 'HTTP_PROXY=\nHTTPS_PROXY=\nALL_PROXY=\n'
@@ -129,6 +130,7 @@ trap - EXIT HUP INT TERM
 export STUNDECK_LISTEN="0.0.0.0:${port}"
 export STUNDECK_SECURE_COOKIES="$secure_cookies"
 export STUNDECK_STUN_SERVER=turn.cloudflare.com:3478
+export STUNDECK_UDP_STUN_SERVER=turn.cloudflare.com:53
 export STUNDECK_KEEPALIVE_SERVER=www.cloudflare.com:80
 export TZ="$timezone"
 HTTP_PROXY=''
