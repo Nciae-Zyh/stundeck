@@ -3,11 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
-	"net"
-	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -20,38 +17,7 @@ func (m *Manager) startQuickTunnel(ctx context.Context, service store.Service) e
 	if service.Protocol != "tcp" || (service.TunnelProtocol != "http" && service.TunnelProtocol != "https") {
 		return errors.New("Quick Tunnel 仅支持 HTTP / HTTPS 服务")
 	}
-	if err := validateTarget(ctx, service); err != nil {
-		return err
-	}
-	binary, err := exec.LookPath(m.tunnelBinary())
-	if err != nil {
-		return errors.New("cloudflared 不可用，请安装或使用 StunDeck 镜像")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.processes[service.ID]; exists {
-		return nil
-	}
-	processContext, cancel := context.WithCancel(context.Background())
-	target := service.TunnelProtocol + "://" + net.JoinHostPort(service.TargetHost, strconv.Itoa(service.TargetPort))
-	cmd := exec.CommandContext(processContext, binary, "--no-autoupdate", "tunnel", "--config", os.DevNull, "--url", target)
-	cmd.Env = tunnelEnvironment(os.Environ(), "")
-	output := &quickTunnelOutput{manager: m, serviceID: service.ID, cmd: cmd}
-	cmd.Stdout, cmd.Stderr = output, output
-	if err = cmd.Start(); err != nil {
-		cancel()
-		return err
-	}
-	m.processes[service.ID] = &process{cancel: cancel, ctx: processContext, cmd: cmd}
-	if err = m.store.SetServiceRuntime(context.Background(), service.ID, "tunnel_starting", "", true); err != nil {
-		delete(m.processes, service.ID)
-		cancel()
-		// Wait outside the manager lock: the output copier also takes this lock.
-		go func() { _ = cmd.Wait() }()
-		return err
-	}
-	go m.wait(service.ID, processContext, cmd)
-	return nil
+	return m.startConnector(ctx, service, true)
 }
 
 // Keep only the generated hostname; never forward raw connector logs, settings,

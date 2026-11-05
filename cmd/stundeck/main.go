@@ -86,6 +86,7 @@ func run() error {
 		CallbackURL:       callbackURL,
 		CallbackToken:     internalToken,
 		STUNServer:        appConfig.STUNServer,
+		UDPSTUNServer:     appConfig.UDPSTUNServer,
 		KeepAliveServer:   appConfig.KeepAliveServer,
 		KeepAlive:         appConfig.KeepAlive,
 	}, database, logger)

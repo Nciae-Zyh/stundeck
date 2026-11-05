@@ -114,7 +114,7 @@ function gatewayModeLabel(mode: Service['gatewayMode']) {
       <div v-if="services.length" class="service-list">
         <div v-for="service in services" :key="service.id" class="service-block">
           <article class="service-row" :data-editing="editingServiceId === service.id">
-            <div class="service-signal"><i :data-active="['healthy', 'mapped', 'gateway_mapped', 'discovering', 'tunnel_running', 'tunnel_starting'].includes(service.status)" /></div>
+            <div class="service-signal"><i :data-active="['healthy', 'mapped', 'gateway_mapped', 'discovering', 'tunnel_running', 'tunnel_starting', 'tunnel_retrying'].includes(service.status)" /></div>
             <div class="service-main">
               <div class="service-title"><strong>{{ service.name }}</strong><StatusBadge :status="service.status" /></div>
               <p>{{ service.protocol.toUpperCase() }} · {{ service.targetHost }}:{{ service.targetPort }} → {{ usesConnector(service.publishMode) ? modeLabels[service.publishMode] : formatEndpoint(service.publicIp, service.publicPort) }}</p>
@@ -123,6 +123,7 @@ function gatewayModeLabel(mode: Service['gatewayMode']) {
               <small v-if="serviceURL(service)"><a :href="serviceURL(service)" target="_blank" rel="noreferrer">{{ serviceURL(service) }}</a></small>
               <small v-else-if="service.entryHostname">{{ service.entryHostname }}<template v-if="service.publishMode === 'spectrum'">:{{ service.edgePort }}</template></small>
               <small v-if="service.publishMode === 'tunnel'">进程运行不代表已连接云端，请在 Cloudflare Dashboard 核对 Tunnel 状态。</small>
+              <small v-if="service.status === 'tunnel_retrying'" class="form-hint">connector 已退出，StunDeck 会自动重试；手动停止服务可取消重试。</small>
               <small v-if="service.publishMode === 'tunnel' && !['http', 'https'].includes(service.tunnelProtocol || 'http')">客户端：cloudflared access {{ service.tunnelProtocol === 'ssh' ? 'ssh' : 'tcp' }} --hostname {{ service.entryHostname }}<template v-if="service.tunnelProtocol !== 'ssh'"> --url localhost:{{ service.targetPort }}</template></small>
               <small v-if="service.publishMode === 'quick'">临时网址重启会变化；获得网址不代表已完成外网连通性验证。</small>
               <small v-if="service.publishMode === 'warp'">私网路由 {{ service.privateNetwork }} · 使用已注册的 Cloudflare One 客户端访问目标 IP；请核对 Split Tunnels 和 Gateway 策略。</small>

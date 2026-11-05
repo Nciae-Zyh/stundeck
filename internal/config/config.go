@@ -16,6 +16,7 @@ type Config struct {
 	NatmapBinary      string
 	NotifyBinary      string
 	STUNServer        string
+	UDPSTUNServer     string
 	KeepAliveServer   string
 	KeepAlive         time.Duration
 	SecureCookies     bool
@@ -34,6 +35,7 @@ func Load() Config {
 		NatmapBinary:      env("STUNDECK_NATMAP_BINARY", "natmap"),
 		NotifyBinary:      env("STUNDECK_NOTIFY_BINARY", "stundeck-notify"),
 		STUNServer:        env("STUNDECK_STUN_SERVER", "turn.cloudflare.com:3478"),
+		UDPSTUNServer:     env("STUNDECK_UDP_STUN_SERVER", "turn.cloudflare.com:53"),
 		KeepAliveServer:   env("STUNDECK_KEEPALIVE_SERVER", "www.cloudflare.com:80"),
 		KeepAlive:         30 * time.Second,
 		SecureCookies:     envBool("STUNDECK_SECURE_COOKIES", false),

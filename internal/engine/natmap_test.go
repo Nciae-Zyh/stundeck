@@ -17,6 +17,7 @@ func TestBuildArgsTCP(t *testing.T) {
 	}
 	config := Config{
 		STUNServer:      "turn.cloudflare.com:3478",
+		UDPSTUNServer:   "turn.cloudflare.com:53",
 		KeepAliveServer: "www.cloudflare.com:80",
 		KeepAlive:       30 * time.Second,
 	}
@@ -24,6 +25,27 @@ func TestBuildArgsTCP(t *testing.T) {
 		"-4", "-s", "turn.cloudflare.com:3478", "-b", "12000",
 		"-t", "192.168.1.20", "-p", "8080", "-e", "/bin/notify",
 		"-k", "30", "-h", "www.cloudflare.com:80",
+	}
+	if got := BuildArgs(service, config, "/bin/notify"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildArgsUDPUsesDedicatedSTUNServer(t *testing.T) {
+	service := store.Service{
+		TargetHost: "192.168.1.20",
+		TargetPort: 51820,
+		Protocol:   "udp",
+		BindPort:   0,
+	}
+	config := Config{
+		STUNServer:    "turn.cloudflare.com:3478",
+		UDPSTUNServer: "turn.cloudflare.com:53",
+		KeepAlive:     30 * time.Second,
+	}
+	want := []string{
+		"-4", "-u", "-s", "turn.cloudflare.com:53", "-b", "0",
+		"-t", "192.168.1.20", "-p", "51820", "-e", "/bin/notify", "-k", "30",
 	}
 	if got := BuildArgs(service, config, "/bin/notify"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildArgs() = %#v, want %#v", got, want)

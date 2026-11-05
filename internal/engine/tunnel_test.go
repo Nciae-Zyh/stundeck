@@ -76,6 +76,177 @@ func TestTunnelProcessSurvivesRequestAndKeepsTokenOutOfArguments(t *testing.T) {
 		t.Fatalf("stop failed: %+v %v", saved, err)
 	}
 }
+
+func TestTunnelStartsBeforeSlowOriginIsListening(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "slow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// Nothing listens on this port. Starting a connector must not wait for or
+	// reject the local service; the service may come up after the connector.
+	svc := store.Service{
+		ID:             "slow",
+		Name:           "Slow",
+		PublishMode:    "tunnel",
+		TunnelProtocol: "http",
+		TargetHost:     "127.0.0.1",
+		TargetPort:     45991,
+		Protocol:       "tcp",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	if err = db.CreateService(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(dir, "cloudflared")
+	if err = os.WriteFile(binary, []byte("#!/bin/sh\nexec sleep 30\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Config{
+		CloudflaredBinary: binary,
+		TunnelToken:       func(context.Context, store.Service) (string, error) { return "slow-origin-token", nil },
+	}, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer manager.StopAll()
+	started := time.Now()
+	if err = manager.Start(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("connector start waited for slow origin: %s", elapsed)
+	}
+	saved, err := db.Service(context.Background(), svc.ID)
+	if err != nil || saved.Status != "tunnel_running" || !saved.Enabled {
+		t.Fatalf("connector was not enabled: %+v %v", saved, err)
+	}
+	if err = manager.Stop(svc.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTunnelAutomaticallyRetriesConnectorExit(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "retry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	svc := store.Service{
+		ID:             "retry",
+		Name:           "Retry",
+		PublishMode:    "tunnel",
+		TunnelProtocol: "http",
+		TargetHost:     "slow.service",
+		TargetPort:     8080,
+		Protocol:       "tcp",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	if err = db.CreateService(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(dir, "starts")
+	binary := filepath.Join(dir, "cloudflared")
+	script := "#!/bin/sh\n" +
+		"count=$(cat '" + countFile + "' 2>/dev/null || echo 0)\n" +
+		"count=$((count+1))\n" +
+		"printf '%s' \"$count\" > '" + countFile + "'\n" +
+		"if [ \"$count\" -eq 1 ]; then exit 17; fi\n" +
+		"exec sleep 30\n"
+	if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Config{
+		CloudflaredBinary: binary,
+		TunnelToken:       func(context.Context, store.Service) (string, error) { return "retry-token", nil },
+	}, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer manager.StopAll()
+	if err = manager.Start(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for {
+		count, readErr := os.ReadFile(countFile)
+		loaded, loadErr := db.Service(context.Background(), svc.ID)
+		if readErr == nil && string(count) == "2" && loadErr == nil && loaded.Status == "tunnel_running" && manager.Running(svc.ID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("connector was not restarted: starts=%q service=%+v readErr=%v loadErr=%v", count, loaded, readErr, loadErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err = manager.Stop(svc.ID); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := db.Service(context.Background(), svc.ID)
+	if err != nil || loaded.Status != "stopped" || loaded.Enabled {
+		t.Fatalf("stop after retry failed: %+v %v", loaded, err)
+	}
+}
+
+func TestTunnelStopCancelsPendingRetry(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "cancel-retry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	svc := store.Service{
+		ID:             "cancel-retry",
+		Name:           "Cancel retry",
+		PublishMode:    "tunnel",
+		TunnelProtocol: "http",
+		TargetHost:     "slow.service",
+		TargetPort:     8080,
+		Protocol:       "tcp",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	if err = db.CreateService(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(dir, "starts")
+	binary := filepath.Join(dir, "cloudflared")
+	script := "#!/bin/sh\n" +
+		"count=$(cat '" + countFile + "' 2>/dev/null || echo 0)\n" +
+		"count=$((count+1))\n" +
+		"printf '%s' \"$count\" > '" + countFile + "'\n" +
+		"exit 17\n"
+	if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Config{
+		CloudflaredBinary: binary,
+		TunnelToken:       func(context.Context, store.Service) (string, error) { return "cancel-retry-token", nil },
+	}, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer manager.StopAll()
+	if err = manager.Start(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		loaded, loadErr := db.Service(context.Background(), svc.ID)
+		if loadErr == nil && loaded.Status == "tunnel_retrying" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("connector did not enter retry state: %+v %v", loaded, loadErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err = manager.Stop(svc.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	count, readErr := os.ReadFile(countFile)
+	loaded, loadErr := db.Service(context.Background(), svc.ID)
+	if readErr != nil || string(count) != "1" || loadErr != nil || loaded.Status != "stopped" || loaded.Enabled {
+		t.Fatalf("pending retry was not cancelled: starts=%q service=%+v readErr=%v loadErr=%v", count, loaded, readErr, loadErr)
+	}
+}
+
 func TestTunnelEnvironmentRemovesStaleToken(t *testing.T) {
 	env := tunnelEnvironment([]string{"PATH=/bin", "TUNNEL_TOKEN=old", "OTHER=value"}, "new")
 	joined := strings.Join(env, "\n")
