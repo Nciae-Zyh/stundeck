@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api } from '../api'
 import { canConfigure, capabilityLabels, capabilityStates } from '../cloudflare'
+import { cloudflareTokenPage, cloudflareTokenTemplateURL, tokenPresets, tokenTemplatePermissions, type TokenPreset } from '../cloudflareToken'
 import type { CloudflareConnection, CloudflareInspection, InspectionResponse, Zone } from '../types'
 
 const props = defineProps<{ connections: CloudflareConnection[] }>()
@@ -23,8 +24,21 @@ const hostname = ref('')
 const emails = ref('')
 const duration = ref('24h')
 const filter = ref('')
+const tokenPreset = ref<TokenPreset>('tunnel')
+const includeAccess = ref(false)
+const knownZones = ref<Record<string, Zone>>({})
 let inspectionGeneration = 0
 const selectedZone = computed(() => zones.value.find(zone => zone.id === zoneId.value))
+const editingConnection = computed(() => props.connections.find(connection => connection.id === editingId.value))
+const templateZoneId = computed(() => editingConnection.value?.zoneId || selectedZone.value?.id || '')
+const templateZone = computed(() => knownZones.value[templateZoneId.value])
+const templateZoneName = computed(() => editingConnection.value?.zoneName || selectedZone.value?.name || '')
+const templatePermissions = computed(() => tokenTemplatePermissions(tokenPreset.value, includeAccess.value))
+const templateURL = computed(() => cloudflareTokenTemplateURL(tokenPreset.value, {
+  includeAccess: includeAccess.value,
+  zoneId: templateZoneId.value,
+  accountId: templateZone.value?.account?.id,
+}))
 const visibleDomains = computed(() => report.value?.domains.filter(domain => domain.hostname.includes(filter.value.toLowerCase())) ?? [])
 const accessChoices = computed(() => report.value?.domains.filter(domain => domain.accessEligible) ?? [])
 const accessReady = computed(() => canConfigure(report.value?.capabilities.access))
@@ -54,6 +68,7 @@ async function inspect(connectionId = '') {
       : await api<InspectionResponse>('/api/v1/cloudflare/inspect', { method: 'POST', body: JSON.stringify({ token: token.value, zoneId: zoneId.value }) })
     if (generation !== inspectionGeneration) return
     report.value = result.inspection
+    knownZones.value[result.inspection.zone.id] = result.inspection.zone
     tunnelAvailable.value = result.tunnelAvailable
   } catch (cause) {
     if (generation === inspectionGeneration) error.value = cause instanceof Error ? cause.message : '权限检测失败'
@@ -66,6 +81,7 @@ async function validate() {
     const result = await api<{ zones: Zone[] }>('/api/v1/cloudflare/validate', { method: 'POST', body: JSON.stringify({ token: submittedToken }) })
     if (submittedToken !== token.value) return
     zones.value = result.zones
+    for (const zone of result.zones) knownZones.value[zone.id] = zone
     const existing = props.connections.find(c => c.id === editingId.value)
     zoneId.value = existing?.zoneId ?? result.zones[0]?.id ?? ''
     if (!selectedZone.value) { error.value = 'Token 有效，但无法读取所选 Zone。请检查 Zone Read 和资源范围。'; return }
@@ -150,8 +166,24 @@ async function removeAccess(domain: string) {
       <p v-else class="form-hint">保存连接后，即可在这里按域名配置 Access。</p>
     </section>
     <section id="token-setup" class="token-setup">
-      <div class="token-intro"><div><span class="step-number">01</span><div><strong>{{ editingId ? '更新连接 Token' : '添加 Cloudflare 连接' }}</strong><p>按实际功能增加权限，Zone 和 Account 都限制到所需资源。</p></div></div><a class="button primary" href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">打开 Token 配置</a></div>
+      <div class="token-intro"><div><span class="step-number">01</span><div><strong>{{ editingId ? '更新连接 Token' : '添加 Cloudflare 连接' }}</strong><p>选择用途，打开已填好权限的 Cloudflare 创建页。</p></div></div></div>
+      <div class="token-shortcut permission-card">
+        <div class="token-shortcut-controls">
+          <label>Token 用途<select v-model="tokenPreset"><option v-for="(preset, key) in tokenPresets" :key="key" :value="key">{{ preset.label }}</option></select></label>
+          <a class="button primary" :href="templateURL" target="_blank" rel="noopener noreferrer">快捷创建 Token ↗</a>
+        </div>
+        <p class="form-hint">{{ tokenPresets[tokenPreset].description }}</p>
+        <label v-if="tokenPresets[tokenPreset].access" class="check"><input v-model="includeAccess" type="checkbox" />同时配置 Access 登录保护</label>
+        <p v-if="includeAccess && tokenPreset === 'dns'" class="form-hint">Access 仅用于符合条件的 HTTPS 代理域名；DNS 直连不支持。</p>
+        <div class="token-permissions" aria-live="polite"><strong>将预填以下权限</strong><ul><li v-for="permission in templatePermissions" :key="permission.key">{{ permission.label }}</li></ul></div>
+        <p v-if="templateZoneId" class="form-hint">已限定 Zone：{{ templateZoneName }}。{{ templateZone?.account?.id ? '已带入所属账户，请在 Cloudflare 核对后确认。' : '涉及账户权限时，请在 Cloudflare 将账户范围限定到该域名所属账户。' }}</p>
+        <p v-else class="form-hint">首次创建的链接默认包含所有可访问账户和 Zone。请在 Cloudflare 将资源范围改为需要管理的账户和域名，再确认创建。</p>
+        <p class="form-hint">创建后复制 Token，粘贴到下方验证并保存。Quick Tunnel 无需 Token；Redirect 请按下方完整清单添加 Single Redirect Edit。</p>
+      </div>
+      <details class="token-manual"><summary>其他功能 / 手动配置权限</summary>
       <div class="permission-card"><header><div><p class="eyebrow">PERMISSIONS</p><h3>按功能授权</h3></div><button class="text-button" @click="copyPermissions">复制清单</button></header><div class="permission-list"><p><strong>Zone · Zone · Read</strong><span>列出可见 Zone（基础）</span></p><p><strong>Zone · DNS · Edit</strong><span>DNS、HTTP 代理、Workers 与 Tunnel 域名绑定</span></p><p><strong>Zone · Single Redirect · Edit</strong><span>Redirect</span></p><p><strong>Account · Cloudflare Tunnel · Edit</strong><span>Tunnel 的创建、配置和 connector token</span></p><p><strong>Account · Cloudflare One Networks · Edit</strong><span>WARP 私网路由；Cloudflare Tunnel Edit 也可授权</span></p><p><strong>Workers Scripts / Workers Routes · Edit</strong><span>账户级脚本 + Zone 级路由；另需 DNS Edit</span></p><p><strong>Access: Apps and Policies · Edit</strong><span>按所选账户或 Zone 配置 Access</span></p><p><strong>Zone · Zone Settings · Edit</strong><span>Spectrum；另需 DNS Read 和套餐授权</span></p></div><p class="permission-note">无需 API Tokens Edit。读取成功不等于具备写权限；无需为了检测而增加 Token 管理权限。</p></div>
+        <a class="text-button" :href="cloudflareTokenPage" target="_blank" rel="noopener noreferrer">打开 Cloudflare 手动创建页 ↗</a>
+      </details>
       <div class="form-grid"><label>连接名称<input v-model.trim="name" maxlength="100" :disabled="busy" /></label><label class="span-2">Cloudflare API Token<input v-model.trim="token" type="password" autocomplete="off" spellcheck="false" :disabled="busy" placeholder="加密保存，不回显完整 Token" /></label><button class="button secondary" :disabled="busy || !token" @click="validate">验证 Token 并列出 Zone</button><label v-if="zones.length" class="span-2">可见 Zone<select v-model="zoneId" :disabled="!!editingId || busy"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }} · {{ zone.status }}</option></select></label><div v-if="zones.length" class="button-group span-2"><button class="button secondary" :disabled="busy || inspecting || !zoneId" @click="inspect()">检测所选 Zone 权限与域名</button><button class="button primary" :disabled="busy || !selectedZone || !name" @click="save">{{ editingId ? '更新 Token' : '加密保存' }}</button></div><button v-if="editingId" class="text-button" :disabled="busy" @click="editingId = ''; token = ''; name = 'Cloudflare'">取消更新</button></div>
       <div v-if="connections.length" class="next-step"><span class="step-number">02</span><div><strong>发布局域网服务</strong><p>选择 DNS、Redirect、HTTP 代理、Tunnel、Quick Tunnel、WARP、Workers 或 Spectrum。</p></div><RouterLink class="button secondary" to="/services">进入服务</RouterLink></div>
     </section>
@@ -160,6 +192,15 @@ async function removeAccess(domain: string) {
 </template>
 
 <style scoped>
+.token-shortcut-controls { display: flex; align-items: end; gap: 16px; }
+.token-shortcut-controls > label { flex: 1; min-width: 0; }
+.token-shortcut-controls > a { flex-shrink: 0; }
+.token-shortcut .form-hint { line-height: 1.7; margin: 12px 0 0; }
+.token-shortcut .check { margin-top: 12px; }
+.token-permissions { margin-top: 16px; font-size: .75rem; }
+.token-permissions ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); line-height: 1.8; }
+.token-manual summary { cursor: pointer; color: var(--muted); font-size: .75rem; padding: 8px 0; }
+.token-manual > .text-button { display: inline-block; margin-top: 12px; }
 .cf-inspection { margin: 24px 0; padding: 24px; border: 1px solid var(--line); border-radius: 16px; }
 .cf-capabilities { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; margin: 18px 0; }
 .cf-capabilities article, .cf-domain-list article { padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
@@ -174,5 +215,5 @@ async function removeAccess(domain: string) {
 .cf-inspection .panel-heading input { max-width: 240px; }
 .cf-access-form { margin-top: 28px; }
 textarea { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
-@media(max-width:700px) { .cf-inspection { padding: 14px; } .cf-connection, .panel-heading { flex-wrap: wrap; gap: 12px; } }
+@media(max-width:700px) { .cf-inspection { padding: 14px; } .cf-connection, .panel-heading { flex-wrap: wrap; gap: 12px; } .token-shortcut-controls { flex-direction: column; align-items: stretch; } }
 </style>
