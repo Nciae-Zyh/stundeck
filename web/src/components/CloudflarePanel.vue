@@ -24,7 +24,7 @@ const hostname = ref('')
 const emails = ref('')
 const duration = ref('24h')
 const filter = ref('')
-const tokenPreset = ref<TokenPreset>('tunnel')
+const tokenPreset = ref<TokenPreset>('redirect')
 const includeAccess = ref(false)
 const knownZones = ref<Record<string, Zone>>({})
 let inspectionGeneration = 0
@@ -173,12 +173,13 @@ async function removeAccess(domain: string) {
           <a class="button primary" :href="templateURL" target="_blank" rel="noopener noreferrer">快捷创建 Token ↗</a>
         </div>
         <p class="form-hint">{{ tokenPresets[tokenPreset].description }}</p>
+        <p v-if="tokenPreset === 'redirect'" class="form-hint">保存连接后，在服务中选择 Redirect、302 和「自动管理 DNS」。源站仍需公网可回连；Access 不能保护跳转后的源站。</p>
         <label v-if="tokenPresets[tokenPreset].access" class="check"><input v-model="includeAccess" type="checkbox" />同时配置 Access 登录保护</label>
         <p v-if="includeAccess && tokenPreset === 'dns'" class="form-hint">Access 仅用于符合条件的 HTTPS 代理域名；DNS 直连不支持。</p>
         <div class="token-permissions" aria-live="polite"><strong>将预填以下权限</strong><ul><li v-for="permission in templatePermissions" :key="permission.key">{{ permission.label }}</li></ul></div>
         <p v-if="templateZoneId" class="form-hint">已限定 Zone：{{ templateZoneName }}。{{ templateZone?.account?.id ? '已带入所属账户，请在 Cloudflare 核对后确认。' : '涉及账户权限时，请在 Cloudflare 将账户范围限定到该域名所属账户。' }}</p>
         <p v-else class="form-hint">首次创建的链接默认包含所有可访问账户和 Zone。请在 Cloudflare 将资源范围改为需要管理的账户和域名，再确认创建。</p>
-        <p class="form-hint">创建后复制 Token，粘贴到下方验证并保存。Quick Tunnel 无需 Token；Redirect 请按下方完整清单添加 Single Redirect Edit。</p>
+        <p class="form-hint">创建后复制 Token，粘贴到下方验证并保存。Quick Tunnel 无需 Token。</p>
       </div>
       <details class="token-manual"><summary>其他功能 / 手动配置权限</summary>
       <div class="permission-card"><header><div><p class="eyebrow">PERMISSIONS</p><h3>按功能授权</h3></div><button class="text-button" @click="copyPermissions">复制清单</button></header><div class="permission-list"><p><strong>Zone · Zone · Read</strong><span>列出可见 Zone（基础）</span></p><p><strong>Zone · DNS · Edit</strong><span>DNS、HTTP 代理、Workers 与 Tunnel 域名绑定</span></p><p><strong>Zone · Single Redirect · Edit</strong><span>Redirect</span></p><p><strong>Account · Cloudflare Tunnel · Edit</strong><span>Tunnel 的创建、配置和 connector token</span></p><p><strong>Account · Cloudflare One Networks · Edit</strong><span>WARP 私网路由；Cloudflare Tunnel Edit 也可授权</span></p><p><strong>Workers Scripts / Workers Routes · Edit</strong><span>账户级脚本 + Zone 级路由；另需 DNS Edit</span></p><p><strong>Access: Apps and Policies · Edit</strong><span>按所选账户或 Zone 配置 Access</span></p><p><strong>Zone · Zone Settings · Edit</strong><span>Spectrum；另需 DNS Read 和套餐授权</span></p></div><p class="permission-note">无需 API Tokens Edit。读取成功不等于具备写权限；无需为了检测而增加 Token 管理权限。</p></div>

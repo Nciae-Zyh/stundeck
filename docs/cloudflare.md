@@ -28,15 +28,15 @@ Tunnel 支持 HTTP、HTTPS、TCP、SSH、RDP。浏览器可以直接访问 HTTP 
 
 ### 快捷创建
 
-在「Cloudflare → 添加 Cloudflare 连接」选择 Token 用途，点击「快捷创建 Token」。默认使用 Tunnel 预设，自动填入 `Zone Read`、`DNS Edit` 和 `Cloudflare Tunnel Edit`；也可选择 DNS / HTTP 代理、WARP、Workers、Spectrum，并按需勾选 Access 登录保护。预设只包含所选功能的权限，不包含 Token 管理权限。
+在「Cloudflare → 添加 Cloudflare 连接」选择 Token 用途，点击「快捷创建 Token」。默认使用「STUN + 302 跳转（含自动 DNS）」组合，自动填入 `Zone Read`、`DNS Edit` 和 `Single Redirect Edit`。也可选择 Tunnel、DNS / HTTP 代理、WARP、Workers、Spectrum，并为支持的模式按需勾选 Access 登录保护。预设只包含所选功能的权限，不包含 Token 管理权限。
 
 1. 在 Cloudflare 核对预填的权限。首次创建的通用链接默认包含所有可访问账户和 Zone，请先将资源范围收窄到需要管理的账户和域名。
 2. 选择「继续以显示摘要」，再确认创建；把新 Token 复制回 StunDeck，验证并保存。
 3. 更新已有连接时，链接自动带入该连接的 Zone；如果本次已读取该 Zone 的账户信息，也会带入所属 Account。账户尚未识别时仍需在 Cloudflare 手动限定账户范围。
 
-Quick Tunnel 不需要 Token。Redirect 的权限短名称未列在官方模板参考中，因此保留「其他功能 / 手动配置权限」入口，请按下方清单添加 Single Redirect Edit，避免快捷链接静默漏掉权限。
+使用 STUN + 302 组合时，保存连接后创建服务，发布方式选择 Redirect，跳转状态使用默认 302，并启用「自动管理 DNS」。STUN 映射由本地 NATMap 完成，Cloudflare 负责 DNS 和跳转规则；源站仍需公网可回连，Access 不能保护跳转后的源站。Quick Tunnel 不需要 Token。其他权限仍可通过「其他功能 / 手动配置权限」入口配置。
 
-快捷入口使用 Cloudflare 官方的 [API token template URLs](https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/)。链接只预填表单，不会自动创建 Token 或将生成的秘密回传 StunDeck。用户 Token 模板使用 `permissionGroupKeys` 短名称和 `read` / `edit`（Tunnel 为 `argotunnel`），不能替换成 API 权限组 ID 或 `write`。
+快捷入口使用 Cloudflare 官方的 [API token template URLs](https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/)。链接只预填表单，不会自动创建 Token 或将生成的秘密回传 StunDeck。用户 Token 模板使用 `permissionGroupKeys` 短名称和 `read` / `edit`（Tunnel 为 `argotunnel`，Single Redirect 为已在 Cloudflare 权限摘要页验证的 `dynamic_redirect`），不能替换成 API 权限组 ID 或 `write`。
 
 ### 按功能授权
 
