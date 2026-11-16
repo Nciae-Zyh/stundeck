@@ -49,8 +49,7 @@ func (w *quickTunnelOutput) Write(data []byte) (int, error) {
 			defer w.manager.mu.Unlock()
 			running := w.manager.processes[w.serviceID]
 			if running != nil && running.cmd == w.cmd && running.ctx.Err() == nil {
-				if err := w.manager.store.SetServiceRuntimeURL(context.Background(), w.serviceID, match); err == nil {
-					_ = w.manager.store.SetServiceRuntime(context.Background(), w.serviceID, "tunnel_running", "", true)
+				if err := w.manager.store.SetQuickTunnelReady(context.Background(), w.serviceID, match); err == nil {
 					w.found = true
 				}
 			}

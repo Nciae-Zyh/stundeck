@@ -256,3 +256,16 @@ func (s *Store) SetServiceRuntimeURL(ctx context.Context, id, runtimeURL string)
 	_, err := s.db.ExecContext(ctx, `UPDATE services SET runtime_url = ?, updated_at = ? WHERE id = ?`, runtimeURL, timeText(time.Now()), id)
 	return err
 }
+
+// SetQuickTunnelReady publishes the temporary URL and ready state together so readers never observe
+// a usable URL paired with a stale starting or retrying status.
+func (s *Store) SetQuickTunnelReady(ctx context.Context, id, runtimeURL string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE services SET runtime_url = ?, status = 'tunnel_running', last_error = '', enabled = 1, updated_at = ? WHERE id = ?`, runtimeURL, timeText(time.Now()), id)
+	if err != nil {
+		return fmt.Errorf("mark Quick Tunnel ready: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
