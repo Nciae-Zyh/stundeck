@@ -7,6 +7,18 @@ function template(preset: TokenPreset, options: Parameters<typeof cloudflareToke
 }
 
 describe('Cloudflare token creation templates', () => {
+  it('combines STUN redirect publishing with automatic DNS without Tunnel or Access grants', () => {
+    const { url, groups } = template('redirect', { includeAccess: true, zoneId: 'test-zone' })
+    expect(url.searchParams.get('name')).toBe('StunDeck STUN 302')
+    expect(url.searchParams.get('zoneId')).toBe('test-zone')
+    expect(groups).toEqual([
+      { key: 'zone', type: 'read' },
+      { key: 'dns', type: 'edit' },
+      { key: 'dynamic_redirect', type: 'edit' },
+    ])
+    expect(Object.keys(tokenPresets)[0]).toBe('redirect')
+  })
+
   it('prefills the three Tunnel permissions accepted by the dashboard', () => {
     const { url, groups } = template('tunnel')
     expect(url.origin).toBe('https://dash.cloudflare.com')
@@ -36,7 +48,7 @@ describe('Cloudflare token creation templates', () => {
     expect(groups).toContainEqual({ key: 'access', type: 'edit' })
     expect(url.searchParams.get('name')).toBe('StunDeck Tunnel + Access')
     expect(template('tunnel').groups).not.toContainEqual({ key: 'access', type: 'edit' })
-    for (const preset of ['warp', 'spectrum'] as const) {
+    for (const preset of ['redirect', 'warp', 'spectrum'] as const) {
       expect(template(preset, { includeAccess: true }).groups).toEqual(template(preset).groups)
       expect(template(preset, { includeAccess: true }).url.searchParams.get('name')).not.toContain('Access')
     }

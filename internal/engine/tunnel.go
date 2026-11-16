@@ -118,35 +118,34 @@ func (m *Manager) launchConnector(runContext context.Context, service store.Serv
 	}
 	// cloudflared startup output can contain settings. Named Tunnel output is
 	// intentionally discarded; Quick Tunnel output is parsed only for its URL.
-	if err = cmd.Start(); err != nil {
-		cancel()
-		return nil, fmt.Errorf("启动 cloudflared 失败：%w", err)
-	}
-	running := &process{cancel: cancel, ctx: processContext, cmd: cmd}
 	m.mu.Lock()
 	connector, connectorExists := m.connectors[service.ID]
 	if !connectorExists || connector.ctx != runContext || runContext.Err() != nil {
 		m.mu.Unlock()
 		cancel()
-		go func() { _ = cmd.Wait() }()
 		return nil, context.Canceled
 	}
+	// Quick Tunnel can print its URL immediately. Keep its output handler behind
+	// this lock until the process and starting state are both registered.
+	if err = cmd.Start(); err != nil {
+		m.mu.Unlock()
+		cancel()
+		return nil, fmt.Errorf("启动 cloudflared 失败：%w", err)
+	}
+	running := &process{cancel: cancel, ctx: processContext, cmd: cmd}
 	m.processes[service.ID] = running
-	m.mu.Unlock()
 	status := "tunnel_running"
 	if quick {
 		status = "tunnel_starting"
 	}
-	if !m.setConnectorRuntime(runContext, service.ID, status, "", true) {
-		m.mu.Lock()
-		if current := m.processes[service.ID]; current == running {
-			delete(m.processes, service.ID)
-		}
+	if err = m.store.SetServiceRuntime(context.Background(), service.ID, status, "", true); err != nil {
+		delete(m.processes, service.ID)
 		m.mu.Unlock()
 		cancel()
 		go func() { _ = cmd.Wait() }()
-		return nil, context.Canceled
+		return nil, err
 	}
+	m.mu.Unlock()
 	return running, nil
 }
 

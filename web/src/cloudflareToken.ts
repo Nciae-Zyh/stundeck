@@ -3,11 +3,12 @@ export const cloudflareTokenPage = 'https://dash.cloudflare.com/profile/api-toke
 // User token templates require dashboard short keys (not API permission group
 // IDs or "write"). Unknown keys are silently ignored by Cloudflare.
 // https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
-// "argotunnel" was also checked against the live Tunnel token creation form.
+// "argotunnel" and "dynamic_redirect" were checked in the live creation form.
 const permissions = {
   zone: { key: 'zone', type: 'read', label: 'Zone · Zone · Read' },
   dns: { key: 'dns', type: 'edit', label: 'Zone · DNS · Edit' },
   dnsRead: { key: 'dns', type: 'read', label: 'Zone · DNS · Read' },
+  redirect: { key: 'dynamic_redirect', type: 'edit', label: 'Zone · Single Redirect · Edit' },
   tunnel: { key: 'argotunnel', type: 'edit', label: 'Account · Cloudflare Tunnel · Edit' },
   workers: { key: 'workers_scripts', type: 'edit', label: 'Account · Workers Scripts · Edit' },
   workerRoutes: { key: 'workers_routes', type: 'edit', label: 'Zone · Workers Routes · Edit' },
@@ -16,7 +17,7 @@ const permissions = {
 } as const
 
 type Permission = (typeof permissions)[keyof typeof permissions]
-export type TokenPreset = 'tunnel' | 'dns' | 'warp' | 'workers' | 'spectrum'
+export type TokenPreset = 'redirect' | 'tunnel' | 'dns' | 'warp' | 'workers' | 'spectrum'
 
 export const tokenPresets: Record<TokenPreset, {
   label: string
@@ -25,6 +26,11 @@ export const tokenPresets: Record<TokenPreset, {
   access: boolean
   permissions: readonly Permission[]
 }> = {
+  redirect: {
+    label: 'STUN + 302 跳转（含自动 DNS）', name: 'STUN 302', access: false,
+    description: '把 STUN 映射得到的公网 IP 和动态端口同步为 302 / 307 跳转，并自动管理入口与源站 DNS。',
+    permissions: [permissions.zone, permissions.dns, permissions.redirect],
+  },
   tunnel: {
     label: 'Tunnel · 内网服务发布', name: 'Tunnel', access: true,
     description: '创建 Tunnel 并绑定域名，无需公网入站端口。',
